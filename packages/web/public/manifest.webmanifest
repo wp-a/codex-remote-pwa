@@ -1,0 +1,9 @@
+{
+  "name": "Codex 手机控制台",
+  "short_name": "Codex 控制台",
+  "display": "standalone",
+  "start_url": "/",
+  "background_color": "#f4efe7",
+  "theme_color": "#0d8b7d",
+  "icons": []
+}
