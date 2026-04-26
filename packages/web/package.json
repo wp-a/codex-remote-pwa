@@ -9,6 +9,7 @@
     "dev": "vite",
     "prebuild": "npm run build --workspace @codex-remote/shared",
     "pretest": "npm run build --workspace @codex-remote/shared",
+    "pretypecheck": "npm run build --workspace @codex-remote/shared",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
