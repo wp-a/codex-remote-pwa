@@ -1,0 +1,64 @@
+<svg width="1280" height="900" viewBox="0 0 1280 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="1180" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F2EA"/>
+      <stop offset="1" stop-color="#E7EEF3"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#F7F5EF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#115E59"/>
+    </linearGradient>
+    <filter id="phoneShadow" x="120" y="50" width="430" height="800" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#0F172A" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="900" rx="36" fill="url(#bg)"/>
+  <text x="660" y="180" fill="#0F172A" font-size="54" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">聊天主界面</text>
+  <text x="660" y="232" fill="#475569" font-size="24" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">主屏尽量只保留当前会话、最后输出和输入框。</text>
+
+  <g filter="url(#phoneShadow)">
+    <rect x="160" y="92" width="350" height="708" rx="46" fill="#111827"/>
+    <rect x="178" y="110" width="314" height="672" rx="34" fill="url(#screen)"/>
+    <rect x="267" y="124" width="136" height="18" rx="9" fill="#D5D9DE"/>
+
+    <text x="214" y="204" fill="#94A3B8" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" letter-spacing="0.16em">当前会话</text>
+    <text x="214" y="246" fill="#111827" font-size="30" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">Codex Remote</text>
+    <rect x="214" y="266" width="132" height="32" rx="16" fill="#DFF5EF"/>
+    <text x="248" y="287" fill="#0F766E" font-size="16" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">运行中</text>
+    <text x="214" y="330" fill="#64748B" font-size="15" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">/workspace/codex-remote-pwa</text>
+
+    <rect x="206" y="372" width="190" height="74" rx="24" fill="#EAF1F4"/>
+    <text x="226" y="404" fill="#334155" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">检查当前项目结构，</text>
+    <text x="226" y="428" fill="#334155" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">并告诉我怎么启动。</text>
+
+    <rect x="242" y="470" width="220" height="114" rx="28" fill="#FFFFFF"/>
+    <text x="266" y="504" fill="#0F172A" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">这是一个 monorepo：</text>
+    <text x="266" y="534" fill="#475569" font-size="16" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- packages/server</text>
+    <text x="266" y="560" fill="#475569" font-size="16" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- packages/web</text>
+    <text x="266" y="586" fill="#475569" font-size="16" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- packages/shared</text>
+
+    <rect x="202" y="706" width="266" height="54" rx="27" fill="#FFFFFF"/>
+    <text x="226" y="739" fill="#94A3B8" font-size="17" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">继续这个会话，告诉 Codex…</text>
+    <circle cx="450" cy="733" r="18" fill="url(#accent)"/>
+  </g>
+
+  <g transform="translate(650 330)">
+    <rect width="460" height="140" rx="28" fill="#FFFFFF" opacity="0.82"/>
+    <text x="36" y="48" fill="#0F172A" font-size="26" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">设计要点</text>
+    <text x="36" y="86" fill="#334155" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">1. 头部只显示当前会话和状态</text>
+    <text x="36" y="114" fill="#334155" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">2. 消息流占绝大多数视区</text>
+  </g>
+
+  <g transform="translate(650 512)">
+    <rect width="460" height="164" rx="28" fill="#FFFFFF" opacity="0.82"/>
+    <text x="36" y="48" fill="#0F172A" font-size="26" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">适合手机处理的动作</text>
+    <text x="36" y="88" fill="#334155" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- 继续已有会话</text>
+    <text x="36" y="116" fill="#334155" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- 查看最后输出和运行状态</text>
+    <text x="36" y="144" fill="#334155" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">- 批准或中断当前动作</text>
+  </g>
+</svg>

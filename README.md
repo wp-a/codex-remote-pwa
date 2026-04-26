@@ -1,64 +1,102 @@
 # Codex Remote PWA
 
-Local-first remote control surface for Codex. The bridge server runs on your computer, the PWA runs in your phone browser, and a private network layer such as Tailscale can expose it safely outside your LAN.
+[![CI](https://github.com/wp-a/codex-remote-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/wp-a/codex-remote-pwa/actions/workflows/ci.yml)
 
-## Why this exists
+一个面向手机浏览器的 Codex 远程控制台。  
+它不会把你的代码搬到云端，也不是远程桌面；真正的 Codex 会话仍然运行在你的本机，手机只是一个更轻的控制入口。
 
-Codex works well on a desktop, but it is awkward to continue a local coding session from a phone. This project adds a mobile-first control surface on top of a local Codex runtime so you can:
+## 项目定位
 
-- continue an existing session from your phone
-- watch the latest output without opening a remote desktop
-- import recent local Codex sessions
-- interrupt or approve work from a simpler UI
+这个项目解决的是一个很具体的问题：
 
-## What works in this MVP
+- 你正在电脑上使用 Codex
+- 你临时离开电脑，只带了手机
+- 你想继续给同一个本地会话发任务
+- 你想看最后输出、切换会话、处理中断或授权
 
-- Create and list remote sessions
-- Send a new prompt from the phone
-- Stream timeline events over WebSocket
-- Persist sessions, runs, events, and approvals in SQLite
-- Resume later prompts through the stored runtime thread id
-- Render pending approvals in the phone UI and send approval actions back to the bridge API
+`Codex Remote PWA` 就是为这个场景做的一个本地优先桥接层。
 
-## Current runtime shape
+## 图片预览
 
-- Default fallback runtime: `codex exec --json`
-- First-class runtime option: `codex app-server` over WebSocket via `CODEX_APP_SERVER_URL`
-- The app-server runtime supports `thread/start`, `turn/start`, `turn/interrupt`, streamed command and assistant events, and pending approval capture
-- Approval writeback to app-server is still future work, so phone-side approval actions are visible and persisted, but they do not yet answer the upstream JSON-RPC request
+### 架构概览
 
-## Architecture
+![架构概览](docs/assets/architecture-overview.svg)
+
+### 聊天主界面示意
+
+![聊天主界面示意](docs/assets/mobile-chat-preview.svg)
+
+### 会话切换抽屉示意
+
+![会话切换抽屉示意](docs/assets/mobile-drawer-preview.svg)
+
+## 当前能力
+
+- 在手机端继续已有的 Codex 会话
+- 查看最近导入的本地 Codex session
+- 通过 WebSocket 实时接收最后输出
+- 持久化 `session / run / event / approval`
+- 支持两种运行时：
+  - `codex app-server` WebSocket 运行时
+  - `codex exec --json` CLI fallback
+- 在手机端展示等待授权的动作
+
+## 当前边界
+
+- 手机端的授权动作目前已经可以显示和持久化
+- 但还没有把“允许 / 拒绝”完整回写到上游 `codex app-server`
+- 所以当前更适合：
+  - 继续聊天
+  - 查看输出
+  - 切换会话
+  - 观察授权请求
+
+## 工作方式
 
 ```text
-Phone browser / PWA
+手机浏览器 / PWA
   -> REST + WebSocket bridge
   -> SQLite session store
   -> Codex runtime adapter
-      -> codex app-server (preferred)
-      -> codex exec --json (fallback)
+      -> codex app-server（优先）
+      -> codex exec --json（兜底）
 ```
 
-## Quick start
+## 为什么不是远程桌面
 
-1. Install dependencies:
+远程桌面当然能“看到电脑”，但它并不适合这个场景：
+
+- 手机上阅读代码和日志很累
+- 移动网络下体验不稳定
+- 交互层级太重，切个会话都很笨
+
+这个项目的思路是反过来的：
+
+- 电脑继续跑真正的 Codex
+- 手机只看高价值信息
+- 手机上只暴露最需要的动作
+
+## 快速开始
+
+### 1. 安装依赖
 
 ```bash
 npm install
 ```
 
-2. Build the app:
+### 2. 构建所有包
 
 ```bash
 npm run build
 ```
 
-3. Start Codex app-server if you want the official websocket runtime:
+### 3. 启动 `codex app-server`（推荐）
 
 ```bash
 codex app-server --listen ws://127.0.0.1:8766
 ```
 
-4. Start the single-port server:
+### 4. 启动 bridge server
 
 ```bash
 BRIDGE_TOKEN=your-secret-token \
@@ -66,32 +104,32 @@ CODEX_APP_SERVER_URL=ws://127.0.0.1:8766 \
 npm run start --workspace @codex-remote/server
 ```
 
-If `CODEX_APP_SERVER_URL` is omitted, the bridge falls back to the CLI JSON runtime.
+如果不设置 `CODEX_APP_SERVER_URL`，服务会自动回退到 `codex exec --json`。
 
-5. Open the app locally:
+### 5. 打开本地页面
 
-- `http://127.0.0.1:8787/`
+```text
+http://127.0.0.1:8787/
+```
 
-The server now serves the built PWA and API on the same port.
+## 连接密码说明
 
-## Connection password
+手机端看到的“连接密码”，本质上就是你启动 server 时设置的 `BRIDGE_TOKEN`。
 
-The phone UI asks for a connection password. This is simply the `BRIDGE_TOKEN` value you used when starting the server.
+- 如果页面链接里带了 `?token=...` 或 `?bridgeToken=...`，前端会自动填入
+- 在 `localhost` 开发环境下，会默认填 `change-me`
 
-- If you open the page with `?token=...` or `?bridgeToken=...`, the UI will prefill it automatically.
-- On `localhost`, the development default `change-me` is filled automatically.
+## 外网访问建议
 
-## Tailscale setup
+如果你希望在 4G 或外网下访问家里的那台电脑，推荐通过 `Tailscale` 暴露这套服务，而不是直接把本地端口裸露到公网。
 
-If you want phone access outside your LAN, the cleanest path is Tailscale.
-
-Install on macOS:
+### macOS 安装
 
 ```bash
 brew install tailscale
 ```
 
-Rootless userspace daemon option:
+### Rootless userspace daemon 示例
 
 ```bash
 /opt/homebrew/opt/tailscale/bin/tailscaled \
@@ -100,39 +138,53 @@ Rootless userspace daemon option:
   --state=$HOME/.local/share/tailscale/codex-remote.state
 ```
 
-Login from another terminal:
+### 登录
 
 ```bash
 tailscale --socket=/tmp/tailscaled-codex.sock up --accept-routes=false --hostname=codex-remote-pwa --qr
 ```
 
-After login succeeds, expose the single-port app to your tailnet:
+### 发布服务
 
 ```bash
 tailscale --socket=/tmp/tailscaled-codex.sock serve --bg 8787
 ```
 
-Then open the Tailscale HTTPS URL shown by:
+### 查看访问地址
 
 ```bash
 tailscale --socket=/tmp/tailscaled-codex.sock serve status
 ```
 
-Do not expose the bridge directly to the public internet.
+## 仓库结构
 
-## Repository hygiene
+```text
+packages/shared   共享 schema 和类型
+packages/server   bridge server、SQLite、runtime adapter
+packages/web      手机优先的 PWA 前端
+protocol/         app-server 协议定义与生成结果
+```
 
-This repository intentionally ignores:
-
-- local SQLite databases
-- build artifacts
-- `node_modules`
-- local runtime scratch directories
-- internal planning notes
-
-## Scripts
+## 开发命令
 
 - `npm test`
 - `npm run build`
 - `npm run dev --workspace @codex-remote/server`
 - `npm run start --workspace @codex-remote/server`
+
+## 仓库清理策略
+
+这个仓库默认忽略以下内容：
+
+- 本地 SQLite 数据库
+- 构建产物
+- `node_modules`
+- 本地运行时临时目录
+- 内部实现计划文档
+
+## 后续计划
+
+- 补齐 app-server 授权回写闭环
+- 改善远程会话的历史同步体验
+- 增加更适合开源展示的 demo 配置方式
+- 补充更多真实界面截图
