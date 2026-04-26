@@ -192,6 +192,8 @@ protocol/         app-server 协议定义与生成结果
 
 - `npm test`
 - `npm run build`
+- `npm run typecheck`
+- `npm run clean`
 - `npm run dev --workspace @codex-remote/server`
 - `npm run start --workspace @codex-remote/server`
 
@@ -204,6 +206,14 @@ protocol/         app-server 协议定义与生成结果
 - `node_modules`
 - 本地运行时临时目录
 - 内部实现计划文档
+
+如果只想清掉构建产物，可以运行：
+
+```bash
+npm run clean
+```
+
+这个命令不会删除本地 SQLite 会话数据库。
 
 ## 后续计划
 

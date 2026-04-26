@@ -23,7 +23,7 @@ function loadConnectionConfig(): ConnectionConfig {
     token:
       storedToken ??
       inferDefaultConnectionToken(baseUrl, window.location.origin) ??
-      "change-me",
+      "",
   };
 }
 

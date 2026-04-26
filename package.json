@@ -10,8 +10,10 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
     "dev": "npm run dev --workspace @codex-remote/server",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

@@ -62,7 +62,7 @@ export function App({
   const [shareLinkFeedback, setShareLinkFeedback] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [error, setError] = useState<string | null>(
-    initialToken === "change-me" && !defaultToken
+    (!initialToken || initialToken === "change-me") && !defaultToken
       ? "还没有连接密码，请先在左侧抽屉里保存连接。"
       : null,
   );
