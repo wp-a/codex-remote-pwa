@@ -26,3 +26,22 @@ export function inferDefaultConnectionToken(
     return null;
   }
 }
+
+export function buildConnectionLink(
+  baseUrl: string,
+  token: string,
+  fallbackOrigin?: string,
+): string | null {
+  if (!baseUrl.trim() || !token.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(baseUrl, fallbackOrigin);
+    parsed.searchParams.delete("bridgeToken");
+    parsed.searchParams.set("token", token.trim());
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}

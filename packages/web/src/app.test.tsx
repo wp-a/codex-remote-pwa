@@ -271,6 +271,43 @@ describe("App", () => {
     });
   });
 
+  it("shows a phone-ready link that pre-fills the connection password", async () => {
+    const client = {
+      listSessions: async () => [session],
+      listCodexSessions: async () => [],
+      createSession: async () => session,
+      importCodexSession: async () => session,
+      getSnapshot: async () => snapshot,
+      sendMessage: async () => ({ id: "run_1" }),
+      interrupt: async () => ({ interrupted: false }),
+      approveOnce: async () => undefined,
+      approveTurn: async () => undefined,
+      rejectApproval: async () => undefined,
+    };
+
+    const realtime = {
+      connect: () => () => undefined,
+    };
+
+    render(
+      <App
+        client={client}
+        initialBaseUrl="https://bridge.example.test/remote?view=chat"
+        initialToken="bridge-secret"
+        onSaveConnection={() => undefined}
+        realtime={realtime}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
+
+    expect(screen.getByDisplayValue(
+      "https://bridge.example.test/remote?view=chat&token=bridge-secret",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制链接" })).toBeInTheDocument();
+  });
+
   it("re-imports an already linked native session so older bridge sessions can backfill history", async () => {
     const alreadyImportedNativeSession: CodexSessionSummary = {
       ...nativeSession,

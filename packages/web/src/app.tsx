@@ -10,7 +10,11 @@ import type { ApiClient } from "./api.js";
 import { Composer } from "./components/composer.js";
 import { SessionList } from "./components/session-list.js";
 import { Timeline } from "./components/timeline.js";
-import { LOCAL_DEV_TOKEN, inferDefaultConnectionToken } from "./connection.js";
+import {
+  LOCAL_DEV_TOKEN,
+  buildConnectionLink,
+  inferDefaultConnectionToken,
+} from "./connection.js";
 import { sessionStatusLabel } from "./copy.js";
 import { compactPath, formatRelativeTime } from "./format.js";
 import type { RealtimeClient } from "./realtime.js";
@@ -55,12 +59,31 @@ export function App({
   const [token, setToken] = useState(
     initialToken === "change-me" ? defaultToken : initialToken,
   );
+  const [shareLinkFeedback, setShareLinkFeedback] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [error, setError] = useState<string | null>(
     initialToken === "change-me" && !defaultToken
       ? "还没有连接密码，请先在左侧抽屉里保存连接。"
       : null,
   );
+
+  useEffect(() => {
+    setShareLinkFeedback(null);
+  }, [baseUrl, token]);
+
+  useEffect(() => {
+    if (!shareLinkFeedback) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShareLinkFeedback(null);
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [shareLinkFeedback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,8 +299,17 @@ export function App({
     snapshot && snapshot.session.id === selectedSessionId ? snapshot : null;
   const activeSession = activeSnapshot?.session ?? selectedSession;
   const recentCodexSessions = codexSessions.slice(0, 6);
-  const connectionState = error ? "待处理" : token ? "在线" : "未配置";
+  const effectiveToken =
+    token.trim() ||
+    inferDefaultConnectionToken(baseUrl.trim(), window.location.origin) ||
+    "";
+  const connectionState = error ? "待处理" : effectiveToken ? "在线" : "未配置";
   const activeStatus = activeSession?.status ?? (error ? "error" : "idle");
+  const shareLink = buildConnectionLink(
+    baseUrl.trim(),
+    effectiveToken,
+    window.location.origin,
+  );
   const activeStatusLabel = activeSession
     ? sessionStatusLabel(activeSession.status)
     : error
@@ -286,6 +318,19 @@ export function App({
   const activePath = activeSession?.projectPath
     ? compactPath(activeSession.projectPath)
     : "从左上角打开会话列表，继续最近的 Codex 会话";
+
+  async function copyShareLink() {
+    if (!shareLink) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setShareLinkFeedback("已复制");
+    } catch {
+      setShareLinkFeedback("复制失败，请长按输入框手动复制");
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -397,7 +442,7 @@ export function App({
               {error ? <p className="error-banner">{error}</p> : null}
 
               <section className="surface-card">
-                <details className="drawer-disclosure" open={!token}>
+                <details className="drawer-disclosure" open={!effectiveToken}>
                   <summary>
                     <span>连接设置</span>
                     <span className="meta-chip meta-chip--accent">{connectionState}</span>
@@ -410,6 +455,42 @@ export function App({
                     ，页面会自动填入；本地开发地址默认使用
                     <code>{LOCAL_DEV_TOKEN}</code>。
                   </p>
+
+                  {shareLink ? (
+                    <div className="connection-share">
+                      <div className="section-heading">
+                        <div>
+                          <p className="eyebrow">手机直达</p>
+                          <h3>手机打开链接</h3>
+                        </div>
+                        <span className="meta-chip">自动带密码</span>
+                      </div>
+                      <p className="section-note">
+                        把这条链接发到手机上，页面会自动填好连接密码，不用再手动输入。
+                      </p>
+                      <label className="field-stack">
+                        <span className="field-label">手机打开链接</span>
+                        <input
+                          onFocus={(event) => event.target.select()}
+                          readOnly
+                          value={shareLink}
+                        />
+                      </label>
+                      <div className="connection-share__actions">
+                        <button onClick={() => void copyShareLink()} type="button">
+                          {shareLinkFeedback ?? "复制链接"}
+                        </button>
+                        <a
+                          className="connection-share__open"
+                          href={shareLink}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          在手机打开
+                        </a>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <form className="connection-form" onSubmit={submitConnection}>
                     <label className="field-stack">

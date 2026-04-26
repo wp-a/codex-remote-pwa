@@ -247,7 +247,8 @@ textarea {
 }
 
 .connection-form,
-.session-create {
+.session-create,
+.connection-share {
   display: grid;
   gap: 0.7rem;
   margin-top: 0.95rem;
@@ -266,6 +267,7 @@ textarea {
 
 .connection-form input,
 .session-create input,
+.connection-share input,
 .composer textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -275,12 +277,14 @@ textarea {
 }
 
 .connection-form input,
-.session-create input {
+.session-create input,
+.connection-share input {
   padding: 0.88rem 0.95rem;
 }
 
 .connection-form button,
 .session-create button,
+.connection-share__actions button,
 .composer button,
 .approval-card__actions button,
 .native-session-list__item,
@@ -295,12 +299,44 @@ textarea {
 }
 
 .connection-form button,
-.session-create button {
+.session-create button,
+.connection-share__actions button {
   padding: 0.82rem 1rem;
   border: 0;
   border-radius: 999px;
   background: #192127;
   color: white;
+}
+
+.connection-share {
+  padding: 0.95rem;
+  border-radius: 22px;
+  background: rgba(12, 142, 127, 0.08);
+  border: 1px solid rgba(12, 142, 127, 0.14);
+}
+
+.connection-share h3 {
+  margin: 0.25rem 0 0;
+  font-size: 1.05rem;
+}
+
+.connection-share__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.connection-share__open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.78rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(12, 142, 127, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--accent-deep);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .error-banner {

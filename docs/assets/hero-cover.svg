@@ -1,0 +1,160 @@
+<svg width="1600" height="960" viewBox="0 0 1600 960" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="hero-bg" x1="120" y1="80" x2="1500" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5EFE6"/>
+      <stop offset="1" stop-color="#E8EFF4"/>
+    </linearGradient>
+    <linearGradient id="screen-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#161D23"/>
+      <stop offset="1" stop-color="#11171C"/>
+    </linearGradient>
+    <linearGradient id="phone-screen" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#F7F3EB"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1EB8A7"/>
+      <stop offset="1" stop-color="#0E7B76"/>
+    </linearGradient>
+    <linearGradient id="desk" x1="240" y1="760" x2="1480" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A78E74"/>
+      <stop offset="1" stop-color="#867059"/>
+    </linearGradient>
+    <filter id="shadow-soft" x="-40" y="-40" width="720" height="620" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#0F172A" flood-opacity="0.18"/>
+    </filter>
+    <filter id="shadow-phone" x="-40" y="-40" width="420" height="700" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="26" flood-color="#0F172A" flood-opacity="0.24"/>
+    </filter>
+    <filter id="shadow-card" x="-30" y="-30" width="520" height="220" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0F172A" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="960" rx="48" fill="#11161C"/>
+  <rect x="36" y="36" width="1528" height="888" rx="40" fill="url(#hero-bg)"/>
+  <circle cx="1460" cy="170" r="120" fill="#DCEEE7"/>
+  <circle cx="188" cy="196" r="104" fill="#E6D9C9"/>
+  <circle cx="142" cy="786" r="148" fill="#E2D7C9"/>
+
+  <text x="104" y="132" fill="#182137" font-size="58" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">Codex Remote PWA</text>
+  <text x="104" y="184" fill="#4B5B71" font-size="28" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">让手机继续你电脑上的本地 Codex 会话，而不是远程桌面。</text>
+
+  <g transform="translate(104 234)">
+    <rect width="250" height="58" rx="29" fill="#151C28"/>
+    <text x="28" y="38" fill="#F8FAFC" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">本地优先</text>
+    <text x="116" y="38" fill="#CBD5E1" font-size="20" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">代码不离开电脑</text>
+  </g>
+
+  <g filter="url(#shadow-soft)" transform="translate(328 236)">
+    <rect width="760" height="486" rx="34" fill="#1A2028"/>
+    <rect x="30" y="28" width="700" height="412" rx="24" fill="url(#screen-dark)"/>
+    <rect x="308" y="446" width="144" height="18" rx="9" fill="#26303A"/>
+    <rect x="280" y="466" width="202" height="14" rx="7" fill="#1A2028"/>
+
+    <rect x="58" y="58" width="184" height="28" rx="14" fill="#20363A"/>
+    <circle cx="78" cy="72" r="6" fill="#25C4B6"/>
+    <rect x="98" y="66" width="112" height="12" rx="6" fill="#6FD6CC"/>
+
+    <g transform="translate(58 114)">
+      <rect width="156" height="18" rx="9" fill="#24303A"/>
+      <rect y="34" width="118" height="18" rx="9" fill="#233038"/>
+      <rect y="68" width="132" height="18" rx="9" fill="#233038"/>
+      <rect y="102" width="96" height="18" rx="9" fill="#233038"/>
+      <rect y="136" width="148" height="18" rx="9" fill="#20363A"/>
+      <rect x="0" y="170" width="124" height="18" rx="9" fill="#233038"/>
+      <rect x="0" y="204" width="108" height="18" rx="9" fill="#233038"/>
+    </g>
+
+    <g transform="translate(274 74)">
+      <rect width="324" height="18" rx="9" fill="#36414E"/>
+      <rect y="36" width="248" height="12" rx="6" fill="#2BC5B7"/>
+      <rect x="258" y="36" width="66" height="12" rx="6" fill="#CFB17A"/>
+      <rect y="72" width="296" height="12" rx="6" fill="#758191"/>
+      <rect y="108" width="348" height="98" rx="26" fill="#212934"/>
+      <rect x="24" y="136" width="182" height="12" rx="6" fill="#647185"/>
+      <rect x="24" y="160" width="120" height="12" rx="6" fill="#26C0B2"/>
+      <rect x="24" y="184" width="216" height="12" rx="6" fill="#728094"/>
+
+      <circle cx="16" cy="252" r="14" fill="#23483F"/>
+      <rect x="42" y="242" width="226" height="12" rx="6" fill="#CFD6E1"/>
+      <rect x="276" y="242" width="46" height="12" rx="6" fill="#24C1B3"/>
+      <rect x="42" y="264" width="162" height="10" rx="5" fill="#7E8A98"/>
+
+      <circle cx="16" cy="314" r="14" fill="#23483F"/>
+      <rect x="42" y="304" width="284" height="12" rx="6" fill="#CFD6E1"/>
+      <rect x="42" y="326" width="148" height="10" rx="5" fill="#7E8A98"/>
+      <rect x="198" y="326" width="86" height="10" rx="5" fill="#24C1B3"/>
+    </g>
+
+    <circle cx="690" cy="410" r="18" fill="#173F3D"/>
+    <path d="M683 410H697" stroke="#ECFEFF" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M690 403L697 410L690 417" stroke="#ECFEFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#shadow-phone)" transform="translate(1048 424)">
+    <rect width="238" height="464" rx="42" fill="#121A21"/>
+    <rect x="12" y="12" width="214" height="440" rx="30" fill="url(#phone-screen)"/>
+    <rect x="80" y="20" width="78" height="10" rx="5" fill="#C9D0D8"/>
+
+    <rect x="26" y="52" width="76" height="12" rx="6" fill="#D6DBE1"/>
+    <rect x="28" y="92" width="158" height="74" rx="20" fill="#0F4C49"/>
+    <rect x="46" y="112" width="104" height="8" rx="4" fill="#DDF7F1"/>
+    <rect x="46" y="128" width="86" height="8" rx="4" fill="#8AE6D8"/>
+    <rect x="46" y="144" width="58" height="8" rx="4" fill="#E7F8F4"/>
+
+    <circle cx="38" cy="192" r="7" fill="#CBD3DB"/>
+    <rect x="54" y="184" width="62" height="8" rx="4" fill="#D7DEE4"/>
+    <rect x="28" y="206" width="134" height="48" rx="16" fill="#F4EADB"/>
+    <rect x="42" y="222" width="86" height="8" rx="4" fill="#7FA9A0"/>
+    <rect x="42" y="236" width="104" height="8" rx="4" fill="#C1C6CE"/>
+
+    <rect x="28" y="282" width="164" height="76" rx="20" fill="#143F44"/>
+    <rect x="44" y="302" width="112" height="8" rx="4" fill="#DFF8F2"/>
+    <rect x="44" y="318" width="84" height="8" rx="4" fill="#BEEDE6"/>
+    <rect x="44" y="334" width="96" height="8" rx="4" fill="#95E4D7"/>
+
+    <circle cx="38" cy="388" r="7" fill="#6AB7A9"/>
+    <rect x="54" y="382" width="62" height="8" rx="4" fill="#D7DEE4"/>
+    <rect x="28" y="402" width="146" height="50" rx="16" fill="#F3E7D7"/>
+    <rect x="42" y="420" width="94" height="8" rx="4" fill="#7FA9A0"/>
+    <rect x="42" y="434" width="76" height="8" rx="4" fill="#C0C5CE"/>
+
+    <rect x="28" y="376" width="158" height="26" rx="13" fill="#FFFFFF"/>
+    <rect x="32" y="380" width="122" height="18" rx="9" fill="#F7F4EC"/>
+    <circle cx="190" cy="389" r="13" fill="url(#teal)"/>
+    <path d="M185 389H195" stroke="#ECFEFF" stroke-width="2" stroke-linecap="round"/>
+    <path d="M190 384L195 389L190 394" stroke="#ECFEFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g opacity="0.94">
+    <path d="M514 634C614 618 682 596 754 590C834 584 922 600 1024 632C1082 650 1144 658 1208 654" stroke="#2ED5C6" stroke-width="3" stroke-linecap="round"/>
+    <path d="M526 646C624 636 698 620 774 616C860 610 940 626 1034 650C1090 664 1144 670 1204 668" stroke="#5CE3D5" stroke-width="2" stroke-linecap="round" opacity="0.88"/>
+    <path d="M536 656C632 650 710 640 792 642C878 644 956 660 1040 680C1092 692 1140 698 1188 698" stroke="#8FF1E7" stroke-width="2" stroke-linecap="round" opacity="0.74"/>
+    <circle cx="674" cy="618" r="6" fill="#B2FFF4"/>
+    <circle cx="906" cy="650" r="6" fill="#B2FFF4"/>
+    <circle cx="1054" cy="674" r="6" fill="#B2FFF4"/>
+  </g>
+
+  <rect x="84" y="772" width="1432" height="114" rx="30" fill="#FFFFFF" fill-opacity="0.64"/>
+  <g transform="translate(120 804)">
+    <rect width="252" height="48" rx="24" fill="#151C28"/>
+    <text x="28" y="31" fill="#F8FAFC" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">同一个本地会话</text>
+    <text x="166" y="31" fill="#CBD5E1" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">继续聊天</text>
+  </g>
+  <g transform="translate(406 804)">
+    <rect width="268" height="48" rx="24" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="28" y="31" fill="#17202B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">手机打开链接</text>
+    <text x="148" y="31" fill="#64748B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">更低摩擦接入</text>
+  </g>
+  <g transform="translate(710 804)">
+    <rect width="300" height="48" rx="24" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="28" y="31" fill="#17202B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">最近的 Codex</text>
+    <text x="144" y="31" fill="#64748B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">继续已有 thread</text>
+  </g>
+  <g transform="translate(1044 804)">
+    <rect width="370" height="48" rx="24" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="28" y="31" fill="#17202B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-weight="700">远程控制台</text>
+    <text x="130" y="31" fill="#64748B" font-size="18" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">不是远程桌面</text>
+  </g>
+</svg>
