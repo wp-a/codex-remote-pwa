@@ -72,42 +72,83 @@ export class CodexRuntime {
       throw new Error(`Session already has an active turn: ${input.sessionId}`);
     }
 
-    const invocation = this.adapter.buildInvocation(input);
-    const child = this.spawnFn(invocation.command, invocation.args, {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const stdout = readline.createInterface({ input: child.stdout });
-    const stderr = readline.createInterface({ input: child.stderr });
-
-    stdout.on("line", (line) => {
-      for (const signal of this.adapter.parseStdoutLine(line)) {
-        callbacks.onSignal(signal);
-      }
-    });
-
-    stderr.on("line", (line) => {
-      for (const signal of this.adapter.parseStderrLine(line)) {
-        callbacks.onSignal(signal);
-      }
-    });
+    let currentChild: ReturnType<SpawnFn> | null = null;
+    let emittedRuntimeOutput = false;
+    let emittedSystemMessage = false;
+    let attemptedFreshFallback = false;
+    let resolveWait!: (code: number | null) => void;
 
     const wait = new Promise<number | null>((resolve) => {
+      resolveWait = resolve;
+    });
+
+    const launch = (turnInput: Omit<RuntimeTurnInput, "sessionId">) => {
+      const invocation = this.adapter.buildInvocation(turnInput);
+      const child = this.spawnFn(invocation.command, invocation.args, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      currentChild = child;
+
+      const stdout = readline.createInterface({ input: child.stdout });
+      const stderr = readline.createInterface({ input: child.stderr });
+
+      stdout.on("line", (line) => {
+        for (const signal of this.adapter.parseStdoutLine(line)) {
+          if (signal.type !== "thread_started") {
+            emittedRuntimeOutput = true;
+          }
+          if (signal.type === "system_message") {
+            emittedSystemMessage = true;
+          }
+          callbacks.onSignal(signal);
+        }
+      });
+
+      stderr.on("line", (line) => {
+        for (const signal of this.adapter.parseStderrLine(line)) {
+          if (signal.type === "system_message") {
+            emittedSystemMessage = true;
+          }
+          callbacks.onSignal(signal);
+        }
+      });
+
       child.once("close", (code) => {
+        const shouldFallbackToFreshThread =
+          Boolean(turnInput.threadId) &&
+          Boolean(code) &&
+          code !== 0 &&
+          !emittedRuntimeOutput &&
+          !emittedSystemMessage &&
+          !attemptedFreshFallback;
+
+        if (shouldFallbackToFreshThread) {
+          attemptedFreshFallback = true;
+          emittedRuntimeOutput = false;
+          emittedSystemMessage = false;
+          launch({
+            cwd: turnInput.cwd,
+            prompt: turnInput.prompt,
+            threadId: null,
+          });
+          return;
+        }
+
         this.activeTurns.delete(input.sessionId);
         callbacks.onExit?.(code);
-        resolve(code);
+        resolveWait(code);
       });
-    });
+    };
 
     const handle: RuntimeHandle = {
       wait,
       interrupt: () => {
-        child.kill("SIGINT");
+        currentChild?.kill("SIGINT");
       },
     };
 
     this.activeTurns.set(input.sessionId, handle);
+    launch(input);
     return handle;
   }
 

@@ -1,5 +1,5 @@
 import type { ApprovalRequest, TimelineEvent } from "@codex-remote/shared";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { timelineEventLabel, timelineEventText } from "../copy.js";
@@ -8,14 +8,19 @@ import { ApprovalCard } from "./approval-card.js";
 type TimelineProps = {
   approvals: ApprovalRequest[];
   events: TimelineEvent[];
+  mediaBaseUrl?: string;
+  mediaToken?: string;
   onApproveOnce: (approvalId: string) => void;
   onApproveTurn: (approvalId: string) => void;
   onReject: (approvalId: string) => void;
 };
 
 function transcriptEvents(events: TimelineEvent[]): TimelineEvent[] {
-  return events.filter((event) =>
-    ["user_message", "assistant_message", "patch_summary", "system"].includes(event.type),
+  return events.filter(
+    (event) =>
+      ["user_message", "assistant_message", "patch_summary", "system"].includes(
+        event.type,
+      ) && !isNoisySystemEvent(event, events),
   );
 }
 
@@ -36,7 +41,74 @@ function shouldRenderMarkdown(event: TimelineEvent): boolean {
   );
 }
 
-function MarkdownMessage({ content }: { content: string }) {
+function isNoisySystemEvent(event: TimelineEvent, events: TimelineEvent[]): boolean {
+  if (event.type !== "system") {
+    return false;
+  }
+
+  const text = event.text.trim();
+  const hasLaterSuccessfulReply =
+    text === "Codex exited with code 1" &&
+    events
+      .slice(events.findIndex((item) => item.id === event.id) + 1)
+      .some((item) => item.type === "assistant_message");
+
+  return (
+    hasLaterSuccessfulReply ||
+    text === "Reading additional input from stdin..." ||
+    ["</div>", "</body>", "</html>"].includes(text) ||
+    text.includes("codex_analytics::client: events failed") ||
+    text.includes("codex_core_plugins::manifest: ignoring interface.defaultPrompt") ||
+    text.includes("codex_core::session::turn: after_agent hook failed") ||
+    text.includes("codex_core::session: failed to record rollout items") ||
+    text.includes("codex_rmcp_client::stdio_server_launcher: Failed to terminate MCP process group") ||
+    text.includes("rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Auth(TokenRefreshFailed") ||
+    text.includes("Forbidden: <html>") ||
+    text.includes("challenge-platform/h/g/orchestrate") ||
+    text.includes("_cf_chl_opt") ||
+    text.includes("Enable JavaScript and cookies")
+  );
+}
+
+function localImageProxyUrl(
+  src: string | undefined,
+  mediaBaseUrl: string | undefined,
+  mediaToken: string | undefined,
+): string | undefined {
+  if (!src || !mediaBaseUrl || !mediaToken) {
+    return src;
+  }
+
+  let filePath: string | null = null;
+  if (src.startsWith("file://")) {
+    try {
+      filePath = decodeURIComponent(new URL(src).pathname);
+    } catch {
+      return src;
+    }
+  } else if (src.startsWith("/") && !src.startsWith("//")) {
+    filePath = src;
+  }
+
+  if (!filePath) {
+    return src;
+  }
+
+  const url = new URL("/api/local-image", mediaBaseUrl);
+  url.searchParams.set("path", filePath);
+  url.searchParams.set("token", mediaToken);
+  return url.toString();
+}
+
+function MarkdownMessage({
+  content,
+  mediaBaseUrl,
+  mediaToken,
+}: {
+  content: string;
+  mediaBaseUrl?: string;
+  mediaToken?: string;
+}) {
   return (
     <div className="timeline-markdown">
       <ReactMarkdown
@@ -44,8 +116,20 @@ function MarkdownMessage({ content }: { content: string }) {
           a: ({ node: _node, ...props }) => (
             <a {...props} rel="noreferrer" target="_blank" />
           ),
+          img: ({ node: _node, ...props }) => (
+            <img
+              {...props}
+              loading="lazy"
+              src={localImageProxyUrl(props.src, mediaBaseUrl, mediaToken)}
+            />
+          ),
         }}
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url, key) =>
+          key === "src" && url.startsWith("file://")
+            ? url
+            : defaultUrlTransform(url)
+        }
       >
         {content}
       </ReactMarkdown>
@@ -56,6 +140,8 @@ function MarkdownMessage({ content }: { content: string }) {
 export function Timeline({
   approvals,
   events,
+  mediaBaseUrl,
+  mediaToken,
   onApproveOnce,
   onApproveTurn,
   onReject,
@@ -115,7 +201,11 @@ export function Timeline({
                   <span className="timeline-bubble__label">{timelineEventLabel(event)}</span>
                 )}
                 {shouldRenderMarkdown(event) ? (
-                  <MarkdownMessage content={timelineEventText(event)} />
+                  <MarkdownMessage
+                    content={timelineEventText(event)}
+                    mediaBaseUrl={mediaBaseUrl}
+                    mediaToken={mediaToken}
+                  />
                 ) : (
                   <p>{timelineEventText(event)}</p>
                 )}

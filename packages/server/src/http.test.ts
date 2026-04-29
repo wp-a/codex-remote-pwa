@@ -171,6 +171,102 @@ describe("createBridgeHttp", () => {
     expect(response.headers["cache-control"]).toContain("no-store");
   });
 
+  it("serves authenticated local image files for screenshot previews", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+    staticDir = mkdtempSync(join(tmpdir(), "codex-remote-image-"));
+    const imagePath = join(staticDir, "screen shot.png");
+    writeFileSync(
+      imagePath,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+
+    const bridge = createBridgeHttp({
+      authToken: "secret",
+      eventBus,
+      runtime: {
+        startTurn: () => ({
+          wait: Promise.resolve(0),
+          interrupt: () => undefined,
+        }),
+        interrupt: () => false,
+      },
+      service,
+    });
+
+    server = http.createServer(bridge.app);
+    bridge.attachWebSocket(server);
+
+    await new Promise<void>((resolve) => {
+      server?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    await request(server)
+      .get("/api/local-image")
+      .query({ path: imagePath })
+      .expect(401);
+
+    const response = await request(server)
+      .get("/api/local-image")
+      .query({ path: imagePath, token: "secret" })
+      .expect(200);
+
+    expect(response.headers["content-type"]).toContain("image/png");
+    expect(response.body).toBeInstanceOf(Buffer);
+    expect(response.body.length).toBeGreaterThan(0);
+  });
+
+  it("serves legacy absolute image URLs when the current page referrer has the token", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+    staticDir = mkdtempSync(join(tmpdir(), "codex-remote-legacy-image-"));
+    const imagePath = join(staticDir, "screen shot.png");
+    writeFileSync(
+      imagePath,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+
+    const bridge = createBridgeHttp({
+      authToken: "secret",
+      eventBus,
+      runtime: {
+        startTurn: () => ({
+          wait: Promise.resolve(0),
+          interrupt: () => undefined,
+        }),
+        interrupt: () => false,
+      },
+      service,
+    });
+
+    server = http.createServer(bridge.app);
+    bridge.attachWebSocket(server);
+
+    await new Promise<void>((resolve) => {
+      server?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const legacyImageUrl = imagePath.replaceAll(" ", "%20");
+    await request(server).get(legacyImageUrl).expect(401);
+
+    const response = await request(server)
+      .get(legacyImageUrl)
+      .set("Referer", "http://127.0.0.1:8787/?token=secret")
+      .expect(200);
+
+    expect(response.headers["content-type"]).toContain("image/png");
+    expect(response.body).toBeInstanceOf(Buffer);
+    expect(response.body.length).toBeGreaterThan(0);
+  });
+
   it("lists native codex sessions and imports one into the bridge", async () => {
     store = new SqliteStore(":memory:");
     const eventBus = new EventBus();
@@ -274,6 +370,69 @@ describe("createBridgeHttp", () => {
     expect(importedListResponse.body.sessions[0]?.importedSessionId).toBe(
       importResponse.body.session.id,
     );
+  });
+
+  it("supports local-only mode for browsing history without starting runtime runs", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+
+    const bridge = createBridgeHttp({
+      authToken: "secret",
+      eventBus,
+      runtime: null,
+      runtimeMode: "local-only",
+      service,
+    });
+
+    server = http.createServer(bridge.app);
+    bridge.attachWebSocket(server);
+
+    await new Promise<void>((resolve) => {
+      server?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const api = request(server);
+
+    const healthResponse = await api
+      .get("/api/health")
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(healthResponse.body).toMatchObject({
+      ok: true,
+      runtimeMode: "local-only",
+      canSendMessages: false,
+    });
+
+    const createResponse = await api
+      .post("/api/sessions")
+      .set("Authorization", "Bearer secret")
+      .send({
+        title: "Local Only Demo",
+        projectPath: "/workspace/codex-remote-pwa/tmp-runtime",
+      })
+      .expect(201);
+
+    const sessionId: string = createResponse.body.session.id;
+
+    await api
+      .post(`/api/sessions/${sessionId}/messages`)
+      .set("Authorization", "Bearer secret")
+      .send({ text: "Try to run" })
+      .expect(503)
+      .expect({
+        error: "本地只读模式只能查看本机 Codex 历史，不能发送新任务。",
+      });
+
+    const snapshotResponse = await api
+      .get(`/api/sessions/${sessionId}/snapshot`)
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(snapshotResponse.body.session.status).toBe("idle");
+    expect(snapshotResponse.body.runs).toEqual([]);
+    expect(snapshotResponse.body.events).toEqual([]);
   });
 
   it("backfills history when an imported bridge session already exists", async () => {
@@ -436,5 +595,134 @@ describe("createBridgeHttp", () => {
       { type: "user_message", scope: null },
       { type: "approval_required", scope: "network" },
     ]);
+  });
+
+  it("persists system messages emitted by the runtime", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+
+    const bridge = createBridgeHttp({
+      authToken: "secret",
+      eventBus,
+      runtime: {
+        startTurn: (_input, callbacks) => {
+          callbacks.onSignal({
+            type: "system_message",
+            text: "App-server runtime failed: thread not found: thread_existing",
+          });
+          callbacks.onExit?.(1);
+          return {
+            wait: Promise.resolve(1),
+            interrupt: () => undefined,
+          };
+        },
+        interrupt: () => false,
+      },
+      service,
+    });
+
+    server = http.createServer(bridge.app);
+    bridge.attachWebSocket(server);
+
+    await new Promise<void>((resolve) => {
+      server?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const api = request(server);
+    const createResponse = await api
+      .post("/api/sessions")
+      .set("Authorization", "Bearer secret")
+      .send({
+        title: "Runtime Error Demo",
+        projectPath: "/workspace/codex-remote-pwa/tmp-runtime",
+      })
+      .expect(201);
+
+    const sessionId: string = createResponse.body.session.id;
+
+    await api
+      .post(`/api/sessions/${sessionId}/messages`)
+      .set("Authorization", "Bearer secret")
+      .send({ text: "Continue" })
+      .expect(202);
+
+    const snapshotResponse = await api
+      .get(`/api/sessions/${sessionId}/snapshot`)
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(snapshotResponse.body.events).toContainEqual(
+      expect.objectContaining({
+        type: "system",
+        text: "App-server runtime failed: thread not found: thread_existing",
+      }),
+    );
+  });
+
+  it("rejects a second prompt while the session has an active turn", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+
+    const bridge = createBridgeHttp({
+      authToken: "secret",
+      eventBus,
+      runtime: {
+        startTurn: () => ({
+          wait: new Promise(() => undefined),
+          interrupt: () => undefined,
+        }),
+        interrupt: () => true,
+      },
+      service,
+    });
+
+    server = http.createServer(bridge.app);
+    bridge.attachWebSocket(server);
+
+    await new Promise<void>((resolve) => {
+      server?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const api = request(server);
+    const createResponse = await api
+      .post("/api/sessions")
+      .set("Authorization", "Bearer secret")
+      .send({
+        title: "Busy Demo",
+        projectPath: "/workspace/codex-remote-pwa/tmp-runtime",
+      })
+      .expect(201);
+
+    const sessionId: string = createResponse.body.session.id;
+
+    await api
+      .post(`/api/sessions/${sessionId}/messages`)
+      .set("Authorization", "Bearer secret")
+      .send({ text: "First prompt" })
+      .expect(202);
+
+    await api
+      .post(`/api/sessions/${sessionId}/messages`)
+      .set("Authorization", "Bearer secret")
+      .send({ text: "Second prompt" })
+      .expect(409)
+      .expect({
+        error: "Session already has an active turn. Interrupt it before sending another message.",
+      });
+
+    const snapshotResponse = await api
+      .get(`/api/sessions/${sessionId}/snapshot`)
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(snapshotResponse.body.session.status).toBe("running");
+    expect(snapshotResponse.body.runs).toHaveLength(1);
+    expect(snapshotResponse.body.events).toHaveLength(1);
+    expect(snapshotResponse.body.events[0]).toMatchObject({
+      type: "user_message",
+      text: "First prompt",
+    });
   });
 });

@@ -78,7 +78,9 @@ export class AppServerClient {
               title: "Codex Remote PWA",
               version: "0.1.0",
             },
-            capabilities: null,
+            capabilities: {
+              experimentalApi: true,
+            },
           });
           this.initialized = true;
           settled = true;

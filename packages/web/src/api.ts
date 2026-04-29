@@ -9,7 +9,14 @@ export type CreateSessionInput = {
   projectPath: string;
 };
 
+export type BridgeHealth = {
+  ok: boolean;
+  runtimeMode: "app-server" | "cli" | "local-only";
+  canSendMessages: boolean;
+};
+
 export type ApiClient = {
+  getHealth?: () => Promise<BridgeHealth>;
   listSessions: () => Promise<Session[]>;
   listCodexSessions: () => Promise<CodexSessionSummary[]>;
   createSession: (input: CreateSessionInput) => Promise<Session>;
@@ -53,6 +60,13 @@ async function requestJson<T>(
 
 export function createApiClient(options: CreateApiClientOptions): ApiClient {
   return {
+    async getHealth() {
+      return requestJson<BridgeHealth>(
+        `${options.baseUrl}/api/health`,
+        { method: "GET" },
+        options.token,
+      );
+    },
     async listSessions() {
       const result = await requestJson<{ sessions: Session[] }>(
         `${options.baseUrl}/api/sessions`,

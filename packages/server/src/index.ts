@@ -15,13 +15,21 @@ const authToken = process.env.BRIDGE_TOKEN ?? "change-me";
 const dbPath = process.env.DB_PATH ?? "./codex-remote.db";
 const defaultStaticDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 const staticDir = process.env.WEB_DIST_DIR ?? defaultStaticDir;
+const localOnly = process.env.CODEX_REMOTE_LOCAL_ONLY === "1";
+const runtimeMode: "app-server" | "cli" | "local-only" = localOnly
+  ? "local-only"
+  : process.env.CODEX_APP_SERVER_URL
+    ? "app-server"
+    : "cli";
 
 const store = new SqliteStore(dbPath);
 const eventBus = new EventBus();
 const service = new SessionService(store, eventBus);
-const runtime = process.env.CODEX_APP_SERVER_URL
-  ? new AppServerRuntime(process.env.CODEX_APP_SERVER_URL)
-  : new CodexRuntime(new CliJsonAdapter(process.env.CODEX_BIN ?? "codex"));
+const runtime = localOnly
+  ? null
+  : process.env.CODEX_APP_SERVER_URL
+    ? new AppServerRuntime(process.env.CODEX_APP_SERVER_URL)
+    : new CodexRuntime(new CliJsonAdapter(process.env.CODEX_BIN ?? "codex"));
 const codexSessions = new LocalCodexSessions(process.env.CODEX_STATE_DB_PATH);
 
 const bridge = createBridgeHttp({
@@ -29,6 +37,7 @@ const bridge = createBridgeHttp({
   codexSessions,
   eventBus,
   runtime,
+  runtimeMode,
   service,
   staticDir,
 });

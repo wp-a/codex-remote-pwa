@@ -52,6 +52,19 @@ function turnPayload(id: string, status: "inProgress" | "completed" | "interrupt
   };
 }
 
+function failedTurnPayload(id: string, message: string) {
+  return {
+    id,
+    items: [],
+    status: "failed",
+    error: {
+      message,
+      codexErrorInfo: "unauthorized",
+      additionalDetails: "token_revoked",
+    },
+  };
+}
+
 describe("AppServerRuntime", () => {
   let httpServer: http.Server | null = null;
   let socketServer: WebSocketServer | null = null;
@@ -232,6 +245,11 @@ describe("AppServerRuntime", () => {
       "thread/start",
       "turn/start",
     ]);
+    expect(requests[0]?.params).toMatchObject({
+      capabilities: {
+        experimentalApi: true,
+      },
+    });
     expect(requests[2]?.params).toMatchObject({
       threadId: "thread_1",
       cwd: "/tmp/demo",
@@ -289,6 +307,23 @@ describe("AppServerRuntime", () => {
           return;
         }
 
+        if (payload.method === "thread/resume") {
+          socket.send(
+            rpcResponse(payload.id, {
+              thread: threadPayload("thread_existing", "/tmp/demo"),
+              model: "gpt-5.4",
+              modelProvider: "openai",
+              serviceTier: null,
+              cwd: "/tmp/demo",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandbox: "workspace-write",
+              reasoningEffort: null,
+            }),
+          );
+          return;
+        }
+
         if (payload.method === "turn/start") {
           socket.send(rpcResponse(payload.id, { turn: turnPayload("turn_existing", "inProgress") }));
           return;
@@ -330,12 +365,109 @@ describe("AppServerRuntime", () => {
 
     expect(requests.map((request) => request.method)).toEqual([
       "initialize",
+      "thread/resume",
       "turn/start",
       "turn/interrupt",
     ]);
-    expect(requests[2]?.params).toEqual({
+    expect(requests[3]?.params).toEqual({
       threadId: "thread_existing",
       turnId: "turn_existing",
+    });
+  });
+
+  it("resumes an existing thread before starting a turn", async () => {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+
+    httpServer = http.createServer();
+    socketServer = new WebSocketServer({ server: httpServer });
+
+    socketServer.on("connection", (socket) => {
+      socket.on("message", (message) => {
+        const payload = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+          params?: Record<string, unknown>;
+        };
+        requests.push({ method: payload.method, params: payload.params });
+
+        if (payload.method === "initialize") {
+          socket.send(
+            rpcResponse(payload.id, {
+              userAgent: "codex-app-server",
+              codexHome: "/tmp/codex-home",
+              platformFamily: "unix",
+              platformOs: "macos",
+            }),
+          );
+          return;
+        }
+
+        if (payload.method === "thread/resume") {
+          socket.send(
+            rpcResponse(payload.id, {
+              thread: threadPayload("thread_existing", "/tmp/demo"),
+              model: "gpt-5.4",
+              modelProvider: "openai",
+              serviceTier: null,
+              cwd: "/tmp/demo",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandbox: "workspace-write",
+              reasoningEffort: null,
+            }),
+          );
+          return;
+        }
+
+        if (payload.method === "turn/start") {
+          socket.send(rpcResponse(payload.id, { turn: turnPayload("turn_existing", "inProgress") }));
+          socket.send(
+            rpcNotification("turn/completed", {
+              threadId: "thread_existing",
+              turn: turnPayload("turn_existing", "completed"),
+            }),
+          );
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      httpServer?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = httpServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a test port.");
+    }
+
+    const runtime = new AppServerRuntime(`ws://127.0.0.1:${address.port}`);
+
+    const handle = runtime.startTurn(
+      {
+        sessionId: "session_1",
+        cwd: "/tmp/demo",
+        prompt: "Continue",
+        threadId: "thread_existing",
+      },
+      {
+        onSignal: () => undefined,
+      },
+    );
+
+    await handle.wait;
+
+    expect(requests.map((request) => request.method)).toEqual([
+      "initialize",
+      "thread/resume",
+      "turn/start",
+    ]);
+    expect(requests[1]?.params).toMatchObject({
+      threadId: "thread_existing",
+      cwd: "/tmp/demo",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
+      persistExtendedHistory: true,
     });
   });
 
@@ -357,6 +489,23 @@ describe("AppServerRuntime", () => {
               codexHome: "/tmp/codex-home",
               platformFamily: "unix",
               platformOs: "macos",
+            }),
+          );
+          return;
+        }
+
+        if (payload.method === "thread/resume") {
+          socket.send(
+            rpcResponse(payload.id, {
+              thread: threadPayload("thread_existing", "/tmp/demo"),
+              model: "gpt-5.4",
+              modelProvider: "openai",
+              serviceTier: null,
+              cwd: "/tmp/demo",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandbox: "workspace-write",
+              reasoningEffort: null,
             }),
           );
           return;
@@ -423,5 +572,103 @@ describe("AppServerRuntime", () => {
       turnId: "turn_approval",
       itemId: "item_permissions_1",
     });
+  });
+
+  it("emits the detailed app-server turn error when a turn fails", async () => {
+    const authError =
+      "Encountered invalidated oauth token for user, failing request";
+
+    httpServer = http.createServer();
+    socketServer = new WebSocketServer({ server: httpServer });
+
+    socketServer.on("connection", (socket) => {
+      socket.on("message", (message) => {
+        const payload = JSON.parse(String(message)) as {
+          id: number;
+          method: string;
+        };
+
+        if (payload.method === "initialize") {
+          socket.send(
+            rpcResponse(payload.id, {
+              userAgent: "codex-app-server",
+              codexHome: "/tmp/codex-home",
+              platformFamily: "unix",
+              platformOs: "macos",
+            }),
+          );
+          return;
+        }
+
+        if (payload.method === "thread/resume") {
+          socket.send(
+            rpcResponse(payload.id, {
+              thread: threadPayload("thread_existing", "/tmp/demo"),
+              model: "gpt-5.4",
+              modelProvider: "openai",
+              serviceTier: null,
+              cwd: "/tmp/demo",
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandbox: "workspace-write",
+              reasoningEffort: null,
+            }),
+          );
+          return;
+        }
+
+        if (payload.method === "turn/start") {
+          socket.send(rpcResponse(payload.id, { turn: turnPayload("turn_failed", "inProgress") }));
+          socket.send(
+            rpcNotification("turn/completed", {
+              threadId: "thread_existing",
+              turn: failedTurnPayload("turn_failed", authError),
+            }),
+          );
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      httpServer?.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = httpServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a test port.");
+    }
+
+    const runtime = new AppServerRuntime(`ws://127.0.0.1:${address.port}`);
+    const signals: RuntimeSignal[] = [];
+    let exitCode: number | null = null;
+
+    const handle = runtime.startTurn(
+      {
+        sessionId: "session_1",
+        cwd: "/tmp/demo",
+        prompt: "Continue",
+        threadId: "thread_existing",
+      },
+      {
+        onSignal(signal) {
+          signals.push(signal);
+        },
+        onExit(code) {
+          exitCode = code;
+        },
+      },
+    );
+
+    await handle.wait;
+
+    expect(signals).toContainEqual({
+      type: "system_message",
+      text: `Codex 登录已失效，请重新登录后再发送消息。原始错误：${authError}`,
+    });
+    expect(signals).not.toContainEqual({
+      type: "system_message",
+      text: "App-server turn failed.",
+    });
+    expect(exitCode).toBe(1);
   });
 });

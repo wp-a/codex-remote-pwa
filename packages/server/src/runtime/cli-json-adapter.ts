@@ -6,6 +6,7 @@ import type {
 
 type CliJsonLine =
   | { type: "thread.started"; thread_id: string }
+  | { type: "error"; message: string }
   | {
       type: "item.started";
       item: {
@@ -41,9 +42,18 @@ type CliJsonLine =
         cached_input_tokens: number;
         output_tokens: number;
       };
+    }
+  | {
+      type: "turn.failed";
+      error?: {
+        message?: string;
+      };
     };
 
 export class CliJsonAdapter implements RuntimeAdapter {
+  private ignoringHtmlNoise = false;
+  private lastRuntimeErrorMessage: string | null = null;
+
   constructor(private readonly codexBin = "codex") {}
 
   buildInvocation(input: Omit<RuntimeTurnInput, "sessionId">): {
@@ -88,6 +98,9 @@ export class CliJsonAdapter implements RuntimeAdapter {
     switch (payload.type) {
       case "thread.started":
         return [{ type: "thread_started", threadId: payload.thread_id }];
+      case "error":
+        this.lastRuntimeErrorMessage = payload.message;
+        return [{ type: "system_message", text: payload.message }];
       case "item.started":
         return [
           {
@@ -115,7 +128,16 @@ export class CliJsonAdapter implements RuntimeAdapter {
           },
         ];
       case "turn.completed":
+        this.lastRuntimeErrorMessage = null;
         return [{ type: "turn_completed", usage: payload.usage }];
+      case "turn.failed": {
+        const message = payload.error?.message ?? "Codex turn failed.";
+        if (message === this.lastRuntimeErrorMessage) {
+          return [];
+        }
+        this.lastRuntimeErrorMessage = message;
+        return [{ type: "system_message", text: message }];
+      }
       default:
         return [];
     }
@@ -127,6 +149,40 @@ export class CliJsonAdapter implements RuntimeAdapter {
       return [];
     }
 
+    if (this.shouldIgnoreStderr(text)) {
+      return [];
+    }
+
     return [{ type: "system_message", text }];
+  }
+
+  private shouldIgnoreStderr(text: string): boolean {
+    if (this.ignoringHtmlNoise) {
+      if (text.includes("</html>")) {
+        this.ignoringHtmlNoise = false;
+      }
+      return true;
+    }
+
+    if (
+      text.includes("codex_analytics::client: events failed") ||
+      text.includes("Forbidden: <html>") ||
+      text.includes("challenge-platform/h/g/orchestrate") ||
+      text.includes("_cf_chl_opt") ||
+      text.includes("Enable JavaScript and cookies")
+    ) {
+      this.ignoringHtmlNoise = !text.includes("</html>");
+      return true;
+    }
+
+    return (
+      text === "Reading additional input from stdin..." ||
+      ["</div>", "</body>", "</html>"].includes(text) ||
+      text.includes("codex_core_plugins::manifest: ignoring interface.defaultPrompt") ||
+      text.includes("codex_core::session::turn: after_agent hook failed") ||
+      text.includes("codex_core::session: failed to record rollout items") ||
+      text.includes("codex_rmcp_client::stdio_server_launcher: Failed to terminate MCP process group") ||
+      text.includes("rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Auth(TokenRefreshFailed")
+    );
   }
 }

@@ -53,10 +53,24 @@ type TurnCompletedNotification = {
   turn?: {
     id?: string;
     status?: "completed" | "interrupted" | "failed" | "inProgress";
+    error?: TurnError | null;
   };
 };
 
 type TurnStatus = NonNullable<TurnCompletedNotification["turn"]>["status"];
+
+type TurnError = {
+  message?: string | null;
+  codexErrorInfo?: unknown;
+  additionalDetails?: string | null;
+};
+
+type ErrorNotification = {
+  threadId?: string;
+  turnId?: string;
+  error?: TurnError | null;
+  willRetry?: boolean;
+};
 
 type PermissionsApprovalRequest = {
   threadId?: string;
@@ -140,7 +154,9 @@ export class AppServerAdapter implements RuntimeAdapter {
         title: "Codex Remote PWA",
         version: "0.1.0",
       },
-      capabilities: null,
+      capabilities: {
+        experimentalApi: true,
+      },
     };
   }
 
@@ -151,6 +167,17 @@ export class AppServerAdapter implements RuntimeAdapter {
       approvalsReviewer: "user",
       sandbox: "workspace-write",
       experimentalRawEvents: false,
+      persistExtendedHistory: true,
+    };
+  }
+
+  buildThreadResumeParams(input: Pick<RuntimeTurnInput, "cwd"> & { threadId: string }) {
+    return {
+      threadId: input.threadId,
+      cwd: input.cwd,
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
       persistExtendedHistory: true,
     };
   }
@@ -180,6 +207,10 @@ export class AppServerAdapter implements RuntimeAdapter {
     return (result as ThreadStartResponse | undefined)?.thread?.id ?? null;
   }
 
+  getThreadIdFromThreadResumeResponse(result: unknown): string | null {
+    return (result as ThreadStartResponse | undefined)?.thread?.id ?? null;
+  }
+
   getTurnIdFromTurnStartResponse(result: unknown): string | null {
     return (result as TurnStartResponse | undefined)?.turn?.id ?? null;
   }
@@ -188,6 +219,11 @@ export class AppServerAdapter implements RuntimeAdapter {
     notification: JsonRpcNotification,
   ): TurnStatus | null {
     return (notification.params as TurnCompletedNotification | undefined)?.turn?.status ?? null;
+  }
+
+  getTurnCompletedError(notification: JsonRpcNotification): string | null {
+    const error = (notification.params as TurnCompletedNotification | undefined)?.turn?.error;
+    return formatTurnError(error);
   }
 
   getTurnCompletedIds(notification: JsonRpcNotification): {
@@ -216,6 +252,12 @@ export class AppServerAdapter implements RuntimeAdapter {
   }
 
   parseNotification(notification: JsonRpcNotification): RuntimeSignal[] {
+    if (notification.method === "error") {
+      const error = (notification.params as ErrorNotification | undefined)?.error;
+      const text = formatTurnError(error);
+      return text ? [{ type: "system_message", text }] : [];
+    }
+
     if (notification.method === "item/started") {
       const item = (notification.params as ItemNotification | undefined)?.item;
       if (isCommandExecutionItem(item)) {
@@ -352,4 +394,20 @@ export class AppServerAdapter implements RuntimeAdapter {
       reason: reason?.trim() || `需要${scope}授权`,
     };
   }
+}
+
+function formatTurnError(error: TurnError | null | undefined): string | null {
+  const message = error?.message?.trim();
+  if (!message) {
+    return null;
+  }
+
+  if (
+    error?.codexErrorInfo === "unauthorized" ||
+    message.toLowerCase().includes("invalidated oauth token")
+  ) {
+    return `Codex 登录已失效，请重新登录后再发送消息。原始错误：${message}`;
+  }
+
+  return `App-server turn failed: ${message}`;
 }

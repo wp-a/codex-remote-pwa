@@ -1,6 +1,7 @@
 import type http from "node:http";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { extname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -24,6 +25,8 @@ type RuntimeController = {
   interrupt: (sessionId: string) => boolean;
 };
 
+type RuntimeMode = "app-server" | "cli" | "local-only";
+
 type CreateBridgeHttpOptions = {
   authToken: string;
   codexSessions?: {
@@ -35,7 +38,8 @@ type CreateBridgeHttpOptions = {
     listRecent: () => CodexSessionSummary[];
   };
   eventBus: EventBus;
-  runtime: RuntimeController;
+  runtime: RuntimeController | null;
+  runtimeMode?: RuntimeMode;
   service: SessionService;
   staticDir?: string;
 };
@@ -46,6 +50,108 @@ function bearerToken(header: string | undefined): string | null {
   }
 
   return header.slice("Bearer ".length).trim();
+}
+
+function queryToken(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function isAuthorized(
+  request: express.Request,
+  authToken: string,
+): boolean {
+  if (!authToken) {
+    return true;
+  }
+
+  return (
+    bearerToken(request.header("authorization")) === authToken ||
+    queryToken(request.query.token) === authToken
+  );
+}
+
+function referrerToken(request: express.Request): string | null {
+  const referer = request.header("referer") ?? request.header("referrer");
+  if (!referer) {
+    return null;
+  }
+
+  try {
+    return new URL(referer).searchParams.get("token");
+  } catch {
+    return null;
+  }
+}
+
+function isAuthorizedLocalImageRequest(
+  request: express.Request,
+  authToken: string,
+): boolean {
+  if (!authToken) {
+    return true;
+  }
+
+  return (
+    isAuthorized(request, authToken) ||
+    referrerToken(request) === authToken
+  );
+}
+
+const imageMimeByExtension = new Map([
+  [".avif", "image/avif"],
+  [".bmp", "image/bmp"],
+  [".gif", "image/gif"],
+  [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"],
+  [".png", "image/png"],
+  [".webp", "image/webp"],
+]);
+
+function normalizeLocalImagePath(rawPath: string): string | null {
+  const path =
+    rawPath.startsWith("file://") ? fileURLToPath(rawPath) : decodePath(rawPath);
+  return isAbsolute(path) ? resolve(path) : null;
+}
+
+function decodePath(rawPath: string): string {
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    return rawPath;
+  }
+}
+
+function localImageFile(rawPath: string): {
+  filePath: string;
+  mimeType: string;
+} | null {
+  const filePath = normalizeLocalImagePath(rawPath);
+  const mimeType = filePath
+    ? imageMimeByExtension.get(extname(filePath).toLowerCase())
+    : null;
+
+  if (!filePath || !mimeType || !existsSync(filePath)) {
+    return null;
+  }
+
+  const stat = statSync(filePath);
+  if (!stat.isFile() || stat.size > 25 * 1024 * 1024) {
+    return null;
+  }
+
+  return { filePath, mimeType };
+}
+
+function sendLocalImage(response: express.Response, rawPath: string): boolean {
+  const image = localImageFile(rawPath);
+  if (!image) {
+    return false;
+  }
+
+  response.type(image.mimeType);
+  response.setHeader("Cache-Control", "private, max-age=60");
+  response.sendFile(image.filePath);
+  return true;
 }
 
 export function createBridgeHttp(options: CreateBridgeHttpOptions) {
@@ -83,11 +189,21 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
     );
   }
 
+  app.get("/api/local-image", (request, response) => {
+    if (!isAuthorized(request, options.authToken)) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const rawPath =
+      typeof request.query.path === "string" ? request.query.path : "";
+    if (!sendLocalImage(response, rawPath)) {
+      response.status(404).json({ error: "Image not found." });
+    }
+  });
+
   app.use("/api", (request, response, next) => {
-    if (
-      !options.authToken ||
-      bearerToken(request.header("authorization")) === options.authToken
-    ) {
+    if (isAuthorized(request, options.authToken)) {
       next();
       return;
     }
@@ -96,7 +212,11 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
   });
 
   app.get("/api/health", (_request, response) => {
-    response.json({ ok: true });
+    response.json({
+      ok: true,
+      runtimeMode: options.runtimeMode ?? (options.runtime ? "cli" : "local-only"),
+      canSendMessages: Boolean(options.runtime),
+    });
   });
 
   app.get("/api/sessions", (_request, response) => {
@@ -167,100 +287,140 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
     }
 
     const session = options.service.getSession(request.params.sessionId);
+    if (session.status === "running" || session.status === "blocked_approval") {
+      response.status(409).json({
+        error:
+          "Session already has an active turn. Interrupt it before sending another message.",
+      });
+      return;
+    }
+
+    if (!options.runtime) {
+      response.status(503).json({
+        error: "本地只读模式只能查看本机 Codex 历史，不能发送新任务。",
+      });
+      return;
+    }
+
     const run = options.service.startRun({
       sessionId: session.id,
       prompt: text,
     });
 
     let completed = false;
-    options.runtime.startTurn(
-      {
-        sessionId: session.id,
-        cwd: session.projectPath,
-        prompt: text,
-        threadId: session.runtimeThreadId ?? undefined,
-      },
-      {
-        onSignal: (signal) => {
-          switch (signal.type) {
-            case "thread_started":
-              options.service.updateSessionRuntimeThreadId(
-                session.id,
-                signal.threadId,
-              );
-              break;
-            case "approval_request": {
-              const approval = options.service.createApproval({
-                sessionId: session.id,
-                runId: run.id,
-                scope: signal.scope,
-                reason: signal.reason,
-                status: "pending",
-                createdAt: new Date().toISOString(),
-              });
-              options.service.appendEvent({
-                sessionId: session.id,
-                runId: run.id,
-                type: "approval_required",
-                approvalId: approval.id,
-                scope: signal.scope,
-                ts: new Date().toISOString(),
-              });
-              options.service.updateSessionStatus(session.id, "blocked_approval");
-              break;
+    let emittedRuntimeSystemMessage = false;
+    try {
+      options.runtime.startTurn(
+        {
+          sessionId: session.id,
+          cwd: session.projectPath,
+          prompt: text,
+          threadId: session.runtimeThreadId ?? undefined,
+        },
+        {
+          onSignal: (signal) => {
+            switch (signal.type) {
+              case "thread_started":
+                options.service.updateSessionRuntimeThreadId(
+                  session.id,
+                  signal.threadId,
+                );
+                break;
+              case "approval_request": {
+                const approval = options.service.createApproval({
+                  sessionId: session.id,
+                  runId: run.id,
+                  scope: signal.scope,
+                  reason: signal.reason,
+                  status: "pending",
+                  createdAt: new Date().toISOString(),
+                });
+                options.service.appendEvent({
+                  sessionId: session.id,
+                  runId: run.id,
+                  type: "approval_required",
+                  approvalId: approval.id,
+                  scope: signal.scope,
+                  ts: new Date().toISOString(),
+                });
+                options.service.updateSessionStatus(session.id, "blocked_approval");
+                break;
+              }
+              case "assistant_message":
+                options.service.appendEvent({
+                  sessionId: session.id,
+                  runId: run.id,
+                  type: "assistant_message",
+                  text: signal.text,
+                  ts: new Date().toISOString(),
+                });
+                break;
+              case "command":
+                options.service.appendEvent({
+                  sessionId: session.id,
+                  runId: run.id,
+                  type: "command",
+                  cmd: signal.command,
+                  status: signal.status,
+                  ts: new Date().toISOString(),
+                });
+                break;
+              case "turn_completed":
+                completed = true;
+                options.service.updateRunStatus(run.id, "completed");
+                options.service.updateSessionStatus(session.id, "idle");
+                break;
+              case "system_message":
+                emittedRuntimeSystemMessage = true;
+                options.service.appendEvent({
+                  sessionId: session.id,
+                  runId: run.id,
+                  type: "system",
+                  text: signal.text,
+                  ts: new Date().toISOString(),
+                });
+                break;
             }
-            case "assistant_message":
-              options.service.appendEvent({
-                sessionId: session.id,
-                runId: run.id,
-                type: "assistant_message",
-                text: signal.text,
-                ts: new Date().toISOString(),
-              });
-              break;
-            case "command":
-              options.service.appendEvent({
-                sessionId: session.id,
-                runId: run.id,
-                type: "command",
-                cmd: signal.command,
-                status: signal.status,
-                ts: new Date().toISOString(),
-              });
-              break;
-            case "turn_completed":
-              completed = true;
-              options.service.updateRunStatus(run.id, "completed");
-              options.service.updateSessionStatus(session.id, "idle");
-              break;
-            case "system_message":
-              break;
-          }
-        },
-        onExit: (code) => {
-          if (completed || !code || code === 0) {
-            return;
-          }
+          },
+          onExit: (code) => {
+            if (completed || !code || code === 0) {
+              return;
+            }
 
-          options.service.updateRunStatus(run.id, "failed");
-          options.service.updateSessionStatus(session.id, "error");
-          options.service.appendEvent({
-            sessionId: session.id,
-            runId: run.id,
-            type: "system",
-            text: `Codex exited with code ${code}`,
-            ts: new Date().toISOString(),
-          });
+            options.service.updateRunStatus(run.id, "failed");
+            options.service.updateSessionStatus(session.id, "error");
+            if (!emittedRuntimeSystemMessage) {
+              options.service.appendEvent({
+                sessionId: session.id,
+                runId: run.id,
+                type: "system",
+                text: `Codex exited with code ${code}`,
+                ts: new Date().toISOString(),
+              });
+            }
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      options.service.updateRunStatus(run.id, "failed");
+      options.service.updateSessionStatus(session.id, "error");
+      options.service.appendEvent({
+        sessionId: session.id,
+        runId: run.id,
+        type: "system",
+        text: error instanceof Error ? error.message : "Runtime failed to start.",
+        ts: new Date().toISOString(),
+      });
+      response.status(500).json({ error: "Runtime failed to start." });
+      return;
+    }
 
     response.status(202).json({ run });
   });
 
   app.post("/api/sessions/:sessionId/interrupt", (request, response) => {
     const session = options.service.getSession(request.params.sessionId);
-    const interrupted = options.runtime.interrupt(session.id);
+    const interrupted = options.runtime?.interrupt(session.id) ?? false;
 
     if (interrupted && session.lastRunId) {
       options.service.updateRunStatus(session.lastRunId, "interrupted");
@@ -287,6 +447,19 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
     updateApproval("approved_turn"),
   );
   app.post("/api/approvals/:approvalId/reject", updateApproval("rejected"));
+
+  app.get(/^\/.+\.(?:avif|bmp|gif|jpe?g|png|webp)$/i, (request, response, next) => {
+    if (!isAuthorizedLocalImageRequest(request, options.authToken)) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (sendLocalImage(response, request.path)) {
+      return;
+    }
+
+    next();
+  });
 
   if (options.staticDir && existsSync(join(options.staticDir, "index.html"))) {
     app.get(/^\/(?!api(?:\/|$)).*/, (_request, response) => {

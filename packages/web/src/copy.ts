@@ -45,8 +45,9 @@ export function timelineEventText(event: TimelineEvent): string {
   switch (event.type) {
     case "user_message":
     case "assistant_message":
-    case "system":
       return event.text;
+    case "system":
+      return systemEventText(event.text);
     case "command":
       return `${commandStatusLabel(event.status)}: ${event.cmd}`;
     case "approval_required":
@@ -54,6 +55,14 @@ export function timelineEventText(event: TimelineEvent): string {
     case "patch_summary":
       return event.summary;
   }
+}
+
+function systemEventText(text: string): string {
+  if (text === "Codex exited with code 1") {
+    return "Codex 本次没有返回回复，通常是额度、登录或网络限制导致。请稍后重试，或切换/重新登录 Codex 账号。";
+  }
+
+  return text;
 }
 
 function commandStatusLabel(status: "running" | "done" | "failed"): string {

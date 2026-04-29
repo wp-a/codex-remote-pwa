@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type {
   CodexSessionSummary,
@@ -6,7 +6,7 @@ import type {
   SessionSnapshot,
 } from "@codex-remote/shared";
 
-import type { ApiClient } from "./api.js";
+import type { ApiClient, BridgeHealth } from "./api.js";
 import { Composer } from "./components/composer.js";
 import { SessionList } from "./components/session-list.js";
 import { Timeline } from "./components/timeline.js";
@@ -61,11 +61,29 @@ export function App({
   );
   const [shareLinkFeedback, setShareLinkFeedback] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isInterrupting, setIsInterrupting] = useState(false);
+  const [runtimeCapability, setRuntimeCapability] = useState<{
+    runtimeMode: BridgeHealth["runtimeMode"] | "unknown";
+    canSendMessages: boolean;
+  }>({
+    runtimeMode: "unknown",
+    canSendMessages: true,
+  });
+  const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(
     (!initialToken || initialToken === "change-me") && !defaultToken
       ? "还没有连接密码，请先在左侧抽屉里保存连接。"
       : null,
   );
+
+  function applySnapshot(nextSnapshot: SessionSnapshot) {
+    setSnapshot(nextSnapshot);
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === nextSnapshot.session.id ? nextSnapshot.session : session,
+      ),
+    );
+  }
 
   useEffect(() => {
     setShareLinkFeedback(null);
@@ -87,6 +105,25 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
+
+    client
+      .getHealth?.()
+      .then((health) => {
+        if (!cancelled) {
+          setRuntimeCapability({
+            runtimeMode: health.runtimeMode,
+            canSendMessages: health.canSendMessages,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRuntimeCapability({
+            runtimeMode: "unknown",
+            canSendMessages: true,
+          });
+        }
+      });
 
     client
       .listSessions()
@@ -135,7 +172,7 @@ export function App({
       .then((nextSnapshot) => {
         if (!cancelled) {
           setError(null);
-          setSnapshot(nextSnapshot);
+          applySnapshot(nextSnapshot);
         }
       })
       .catch((nextError) => {
@@ -170,7 +207,12 @@ export function App({
 
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedSessionId || !message.trim()) {
+    if (
+      !selectedSessionId ||
+      !message.trim() ||
+      isSessionBusy ||
+      !runtimeCapability.canSendMessages
+    ) {
       return;
     }
 
@@ -182,6 +224,29 @@ export function App({
     } catch (nextError) {
       setMessage(text);
       setError(describeError(nextError));
+    }
+  }
+
+  async function interruptActiveSession() {
+    if (!selectedSessionId || !canInterrupt) {
+      return;
+    }
+
+    setIsInterrupting(true);
+    try {
+      const result = await client.interrupt(selectedSessionId);
+      if (!result.interrupted) {
+        setError("当前会话没有可中断的任务。");
+        return;
+      }
+
+      const nextSnapshot = await client.getSnapshot(selectedSessionId);
+      applySnapshot(nextSnapshot);
+      setError(null);
+    } catch (nextError) {
+      setError(describeError(nextError));
+    } finally {
+      setIsInterrupting(false);
     }
   }
 
@@ -303,7 +368,16 @@ export function App({
     token.trim() ||
     inferDefaultConnectionToken(baseUrl.trim(), window.location.origin) ||
     "";
-  const connectionState = error ? "待处理" : effectiveToken ? "在线" : "未配置";
+  const isLocalOnly =
+    runtimeCapability.runtimeMode === "local-only" ||
+    !runtimeCapability.canSendMessages;
+  const connectionState = isLocalOnly
+    ? "本地只读"
+    : error
+      ? "待处理"
+      : effectiveToken
+        ? "在线"
+        : "未配置";
   const activeStatus = activeSession?.status ?? (error ? "error" : "idle");
   const shareLink = buildConnectionLink(
     baseUrl.trim(),
@@ -315,9 +389,73 @@ export function App({
     : error
       ? "待处理"
       : connectionState;
+  const isSessionBusy =
+    activeSession?.status === "running" ||
+    activeSession?.status === "blocked_approval";
+  const canInterrupt = Boolean(activeSession && isSessionBusy);
+  const composerHint = !activeSession
+    ? "先从左上角选择一个会话"
+    : isLocalOnly
+      ? "本地只读模式：可以查看历史和截图，不能发送新任务。"
+    : isSessionBusy
+      ? activeSession.status === "blocked_approval"
+        ? "当前任务正在等待授权，请先处理授权或中断。"
+        : "当前任务还在运行，请先中断。"
+      : "继续当前会话";
   const activePath = activeSession?.projectPath
     ? compactPath(activeSession.projectPath)
     : "从左上角打开会话列表，继续最近的 Codex 会话";
+  const timelineCount = activeSnapshot?.events.length ?? 0;
+  const pendingApprovalCount =
+    activeSnapshot?.approvals.filter((approval) => approval.status === "pending")
+      .length ?? 0;
+  const lastActivityLabel = activeSession?.updatedAt
+    ? formatRelativeTime(activeSession.updatedAt)
+    : "等待选择";
+
+  useEffect(() => {
+    if (!selectedSessionId || !isSessionBusy) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      client
+        .getSnapshot(selectedSessionId)
+        .then((nextSnapshot) => {
+          if (!cancelled) {
+            applySnapshot(nextSnapshot);
+            setError(null);
+          }
+        })
+        .catch((nextError) => {
+          if (!cancelled) {
+            setError(describeError(nextError));
+          }
+        });
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [client, selectedSessionId, isSessionBusy]);
+
+  useEffect(() => {
+    if (!activeSnapshot) {
+      return;
+    }
+
+    const timelineEnd = timelineEndRef.current;
+    if (typeof timelineEnd?.scrollIntoView !== "function") {
+      return;
+    }
+
+    timelineEnd.scrollIntoView({
+      block: "end",
+      behavior: "auto",
+    });
+  }, [activeSnapshot, pendingApprovalCount, timelineCount]);
 
   async function copyShareLink() {
     if (!shareLink) {
@@ -574,15 +712,61 @@ export function App({
             <span className={`session-card__badge is-${activeStatus}`}>
               {activeStatusLabel}
             </span>
+            {canInterrupt ? (
+              <button
+                className="interrupt-button"
+                disabled={isInterrupting}
+                onClick={() => {
+                  void interruptActiveSession();
+                }}
+                type="button"
+              >
+                {isInterrupting ? "中断中" : "中断"}
+              </button>
+            ) : null}
           </div>
         </header>
 
         {error ? <p className="error-banner error-banner--inline">{error}</p> : null}
 
+        <section
+          aria-label="会话概览"
+          className={`command-deck is-${activeStatus}`}
+        >
+          <div className="command-deck__content">
+            <div className="command-deck__title">
+              <p className="eyebrow">控制中心</p>
+              <h2>{activeSession?.title ?? "选择一个会话"}</h2>
+              <p>{activeSession ? `项目 ${activePath}` : activePath}</p>
+            </div>
+            <div className="command-deck__state">
+              <span className={`command-deck__pulse is-${activeStatus}`} />
+              <span>{connectionState}</span>
+              <strong>状态 {activeStatusLabel}</strong>
+            </div>
+          </div>
+          <div className="command-deck__metrics">
+            <div>
+              <span>输出</span>
+              <strong>{timelineCount}</strong>
+            </div>
+            <div>
+              <span>授权</span>
+              <strong>{pendingApprovalCount}</strong>
+            </div>
+            <div>
+              <span>更新</span>
+              <strong>{lastActivityLabel}</strong>
+            </div>
+          </div>
+        </section>
+
         <section aria-label="消息时间线" className="chat-stream">
           <Timeline
             approvals={activeSnapshot?.approvals ?? []}
             events={activeSnapshot?.events ?? []}
+            mediaBaseUrl={baseUrl.trim()}
+            mediaToken={effectiveToken}
             onApproveOnce={(approvalId) => {
               void handleApprovalAction(approvalId, "once");
             }}
@@ -593,10 +777,12 @@ export function App({
               void handleApprovalAction(approvalId, "reject");
             }}
           />
+          <div aria-hidden="true" className="timeline-end" ref={timelineEndRef} />
         </section>
 
         <Composer
-          disabled={!activeSession}
+          disabled={!activeSession || isSessionBusy || isLocalOnly}
+          hint={composerHint}
           message={message}
           onChange={setMessage}
           onSubmit={submitMessage}

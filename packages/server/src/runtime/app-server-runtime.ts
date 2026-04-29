@@ -13,6 +13,7 @@ import type {
 
 type ActiveTurnState = {
   callbacks: RuntimeCallbacks;
+  lastErrorMessage: string | null;
   resolveWait: (code: number | null) => void;
   settled: boolean;
   threadId: string | null;
@@ -62,6 +63,7 @@ export class AppServerRuntime {
     const deferred = createDeferred<number | null>();
     const state: ActiveTurnState = {
       callbacks,
+      lastErrorMessage: null,
       resolveWait: deferred.resolve,
       settled: false,
       threadId: input.threadId ?? null,
@@ -107,7 +109,19 @@ export class AppServerRuntime {
       await this.client.connect();
 
       let threadId = input.threadId ?? null;
-      if (!threadId) {
+      if (threadId) {
+        const threadResult = await this.client.request(
+          "thread/resume",
+          this.adapter.buildThreadResumeParams({
+            cwd: input.cwd,
+            threadId,
+          }),
+        );
+        threadId =
+          this.adapter.getThreadIdFromThreadResumeResponse(threadResult) ??
+          threadId;
+        this.threadToSession.set(threadId, input.sessionId);
+      } else {
         const threadResult = await this.client.request(
           "thread/start",
           this.adapter.buildThreadStartParams({ cwd: input.cwd }),
@@ -192,10 +206,16 @@ export class AppServerRuntime {
       }
 
       if (status === "failed") {
-        state.callbacks.onSignal({
-          type: "system_message",
-          text: "App-server turn failed.",
-        });
+        const text =
+          this.adapter.getTurnCompletedError(notification) ??
+          (state.lastErrorMessage ? null : "App-server turn failed.");
+        if (text) {
+          state.lastErrorMessage = text;
+          state.callbacks.onSignal({
+            type: "system_message",
+            text,
+          });
+        }
         this.finishSession(sessionId, 1);
       }
       return;
@@ -206,7 +226,15 @@ export class AppServerRuntime {
       return;
     }
 
+    const state = this.activeTurns.get(sessionId);
+    if (!state) {
+      return;
+    }
+
     for (const signal of this.adapter.parseNotification(notification)) {
+      if (signal.type === "system_message") {
+        state.lastErrorMessage = signal.text;
+      }
       this.emitSignal(sessionId, signal);
     }
   }

@@ -54,6 +54,51 @@ const nativeSession: CodexSessionSummary = {
 };
 
 describe("App", () => {
+  it("jumps to the newest timeline item after loading an existing session", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    const client = {
+      listSessions: async () => [session],
+      listCodexSessions: async () => [],
+      createSession: async () => session,
+      importCodexSession: async () => session,
+      getSnapshot: async () => snapshot,
+      sendMessage: async () => ({ id: "run_1" }),
+      interrupt: async () => ({ interrupted: false }),
+      approveOnce: async () => undefined,
+      approveTurn: async () => undefined,
+      rejectApproval: async () => undefined,
+    };
+
+    const realtime = {
+      connect: () => () => undefined,
+    };
+
+    try {
+      render(
+        <App
+          client={client}
+          initialBaseUrl="https://bridge.example.test"
+          initialToken="bridge-secret"
+          onSaveConnection={() => undefined}
+          realtime={realtime}
+        />,
+      );
+
+      expect(await screen.findByText("这是之前的助手回答")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "end",
+          behavior: "auto",
+        });
+      });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it("opens and closes the session drawer while keeping the main console focused", async () => {
     const client = {
       listSessions: async () => [session],
@@ -230,6 +275,56 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("请继续我们刚才的对话")).toBeInTheDocument();
     expect(await screen.findByText("好的，我会接着上一条会话继续。")).toBeInTheDocument();
+  });
+
+  it("keeps local history readable but disables sending in local-only mode", async () => {
+    const sendMessage = vi.fn(async () => ({ id: "run_1" }));
+    const client = {
+      getHealth: async () => ({
+        ok: true,
+        runtimeMode: "local-only" as const,
+        canSendMessages: false,
+      }),
+      listSessions: async () => [session],
+      listCodexSessions: async () => [nativeSession],
+      createSession: async () => session,
+      importCodexSession: async () => session,
+      getSnapshot: async () => snapshot,
+      sendMessage,
+      interrupt: async () => ({ interrupted: false }),
+      approveOnce: async () => undefined,
+      approveTurn: async () => undefined,
+      rejectApproval: async () => undefined,
+    };
+
+    const realtime = {
+      connect: () => () => undefined,
+    };
+
+    render(
+      <App
+        client={client}
+        initialBaseUrl="https://bridge.example.test"
+        initialToken="bridge-secret"
+        onSaveConnection={() => undefined}
+        realtime={realtime}
+      />,
+    );
+
+    expect(await screen.findByText("这是之前的助手回答")).toBeInTheDocument();
+    expect(
+      await screen.findByText("本地只读模式：可以查看历史和截图，不能发送新任务。"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByPlaceholderText("继续这个会话，告诉 Codex 你想做什么…"),
+      "继续",
+    );
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("uses the token query parameter when saving a connection with an empty password", async () => {
@@ -454,5 +549,193 @@ describe("App", () => {
     resolveSecondSnapshot?.(snapshotTwo);
 
     expect(await screen.findByText("第二个会话的问题")).toBeInTheDocument();
+  });
+
+  it("lets the user interrupt a running session before sending another prompt", async () => {
+    const runningSession: Session = {
+      ...session,
+      status: "running",
+      lastRunId: "run_1",
+    };
+    const interruptedSession: Session = {
+      ...runningSession,
+      status: "idle",
+    };
+    const runningSnapshot: SessionSnapshot = {
+      session: runningSession,
+      runs: [
+        {
+          id: "run_1",
+          sessionId: runningSession.id,
+          prompt: "Keep working",
+          status: "running",
+          startedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      events: [
+        {
+          id: "event_running_user_1",
+          sessionId: runningSession.id,
+          runId: "run_1",
+          type: "user_message",
+          text: "Keep working",
+          ts: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      approvals: [],
+    };
+    const interruptedSnapshot: SessionSnapshot = {
+      ...runningSnapshot,
+      session: interruptedSession,
+      runs: [
+        {
+          ...runningSnapshot.runs[0]!,
+          status: "interrupted",
+          finishedAt: "2026-04-18T10:00:03.000Z",
+        },
+      ],
+    };
+
+    const interrupt = vi.fn(async () => ({ interrupted: true }));
+    const getSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValueOnce(interruptedSnapshot);
+    const client = {
+      listSessions: async () => [runningSession],
+      listCodexSessions: async () => [],
+      createSession: async () => session,
+      importCodexSession: async () => session,
+      getSnapshot,
+      sendMessage: async () => ({ id: "run_1" }),
+      interrupt,
+      approveOnce: async () => undefined,
+      approveTurn: async () => undefined,
+      rejectApproval: async () => undefined,
+    };
+
+    const realtime = {
+      connect: () => () => undefined,
+    };
+
+    render(
+      <App
+        client={client}
+        initialBaseUrl="https://bridge.example.test"
+        initialToken="bridge-secret"
+        onSaveConnection={() => undefined}
+        realtime={realtime}
+      />,
+    );
+
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("button", { name: "中断" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    expect(screen.getByText("当前任务还在运行，请先中断。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "中断" }));
+
+    await waitFor(() => {
+      expect(interrupt).toHaveBeenCalledWith("session_1");
+    });
+
+    expect(await screen.findByText("空闲")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).not.toBeDisabled();
+  });
+
+  it("polls a running session until completion so the composer unlocks", async () => {
+    const runningSession: Session = {
+      ...session,
+      status: "running",
+      lastRunId: "run_1",
+    };
+    const completedSession: Session = {
+      ...runningSession,
+      status: "idle",
+    };
+    const runningSnapshot: SessionSnapshot = {
+      session: runningSession,
+      runs: [
+        {
+          id: "run_1",
+          sessionId: runningSession.id,
+          prompt: "Keep working",
+          status: "running",
+          startedAt: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      events: [
+        {
+          id: "event_running_user_1",
+          sessionId: runningSession.id,
+          runId: "run_1",
+          type: "user_message",
+          text: "Keep working",
+          ts: "2026-04-18T10:00:00.000Z",
+        },
+      ],
+      approvals: [],
+    };
+    const completedSnapshot: SessionSnapshot = {
+      ...runningSnapshot,
+      session: completedSession,
+      runs: [
+        {
+          ...runningSnapshot.runs[0]!,
+          status: "completed",
+          finishedAt: "2026-04-18T10:00:04.000Z",
+        },
+      ],
+      events: [
+        ...runningSnapshot.events,
+        {
+          id: "event_completed_assistant_1",
+          sessionId: runningSession.id,
+          runId: "run_1",
+          type: "assistant_message",
+          text: "Done from poll",
+          ts: "2026-04-18T10:00:04.000Z",
+        },
+      ],
+    };
+
+    const getSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(runningSnapshot)
+      .mockResolvedValue(completedSnapshot);
+    const client = {
+      listSessions: async () => [runningSession],
+      listCodexSessions: async () => [],
+      createSession: async () => session,
+      importCodexSession: async () => session,
+      getSnapshot,
+      sendMessage: async () => ({ id: "run_1" }),
+      interrupt: async () => ({ interrupted: false }),
+      approveOnce: async () => undefined,
+      approveTurn: async () => undefined,
+      rejectApproval: async () => undefined,
+    };
+
+    const realtime = {
+      connect: () => () => undefined,
+    };
+
+    render(
+      <App
+        client={client}
+        initialBaseUrl="https://bridge.example.test"
+        initialToken="bridge-secret"
+        onSaveConnection={() => undefined}
+        realtime={realtime}
+      />,
+    );
+
+    expect(await screen.findByText("Keep working")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+
+    expect(await screen.findByText("Done from poll", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("空闲")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).not.toBeDisabled();
   });
 });

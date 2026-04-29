@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 
 type ComposerProps = {
   disabled?: boolean;
+  hint?: string;
   message: string;
   onChange: (next: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
@@ -9,6 +10,7 @@ type ComposerProps = {
 
 export function Composer({
   disabled = false,
+  hint,
   message,
   onChange,
   onSubmit,
@@ -26,12 +28,15 @@ export function Composer({
             value={message}
           />
         </label>
-        <button disabled={disabled} type="submit">
-          发送
+        <button aria-label="发送" disabled={disabled} type="submit">
+          <span aria-hidden="true" className="composer__send-icon">
+            ↑
+          </span>
+          <span className="sr-only">发送</span>
         </button>
       </div>
       <p className={`composer__hint${disabled ? " is-disabled" : ""}`}>
-        {disabled ? "先从左上角选择一个会话" : "继续当前会话"}
+        {hint ?? (disabled ? "先从左上角选择一个会话" : "继续当前会话")}
       </p>
     </form>
   );
