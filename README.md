@@ -2,103 +2,84 @@
 
 [![CI](https://github.com/wp-a/codex-remote-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/wp-a/codex-remote-pwa/actions/workflows/ci.yml)
 
-一个面向手机浏览器的 Codex 远程控制台。  
-它不会把你的代码搬到云端，也不是远程桌面；真正的 Codex 会话仍然运行在你的本机，手机只是一个更轻的控制入口。
+手机上的 Codex 控制台。电脑继续运行真实的 Codex 和本地代码环境，手机只负责发任务、看进度、处理中断和查看输出。
 
-## 项目定位
-
-这个项目解决的是一个很具体的问题：
-
-- 你正在电脑上使用 Codex
-- 你临时离开电脑，只带了手机
-- 你想继续给同一个本地会话发任务
-- 你想看最后输出、切换会话、处理中断或授权
-
-`Codex Remote PWA` 就是为这个场景做的一个本地优先桥接层。
+这个项目不是远程桌面，也不是把代码搬到云端的 IDE。它的目标更窄：让你离开电脑后，仍然可以用手机继续管理本机正在进行的 Codex coding 会话。
 
 ![产品封面](docs/assets/hero-cover.svg)
 
-## 竞品对照
+## 当前状态
 
-| 项目 | 擅长什么 | 不足或取舍 | `Codex Remote PWA` 的对照策略 |
-| --- | --- | --- | --- |
-| RemCodex | 面向 Codex 的远程继续对话、审批、中断体验直观 | 更偏产品成品，二次定制空间有限 | 保留“继续同一个本地会话”的核心体验，同时坚持自托管、本地优先 |
-| OpenClaw | 多渠道 agent gateway，接入 Telegram / WhatsApp / Discord 的思路清晰 | 不聚焦“继续同一个本地 Codex thread” | 借鉴其低摩擦接入思路，用“手机打开链接”降低配对成本 |
-| OpenHands | 开源包装成熟、README 和项目结构更完整 | 更偏通用开发 agent，不是手机优先 | 借鉴其开源项目表达方式，但聚焦一个更窄、更明确的场景 |
+现在可以使用：
 
-这个项目的定位因此很明确：
+- 本机直连模式可用：手机和电脑在同一网络，或通过 Tailscale/内网穿透访问本机 bridge。
+- Relay + Agent 模式可用：手机通过 WebSocket relay 连接本机 agent，不需要手机直接连到本机 8787 端口。
+- Codex 发送任务可用：支持继续已有 session、新建 session、发送 prompt、查看实时输出。
+- 运行中控制可用：支持运行中轮询、禁止重复发送、中断当前任务。
+- 截图显示可用：本地图片会通过 bridge 图片代理加载。
+- 错误展示可用：常见的 `Codex exited with code 1` 会转成更可读的中文提示。
 
-- 不做远程桌面
-- 不做通用多平台代理
-- 先把“手机继续你电脑上的 Codex 会话”这件事做深
+仍然是 MVP：
 
-## 图片预览
+- Relay 默认是轻量内存配对，不是完整生产级账号系统。
+- 授权请求目前能展示和持久化，但上游 app-server 的完整 approve/reject 闭环还需要继续补齐。
+- 还没有内置二维码页面；现在需要用接口创建 pair code。
+- 没有做终端、文件浏览器、Git 面板、PTY cell grid，这些先不重复造 Lunel 的完整 IDE。
 
-### 系统架构
+## 为什么做这个
 
-![架构概览](docs/assets/architecture-overview.svg)
+典型场景：
 
-### 聊天主界面
+- 电脑上开着 Codex 在修项目。
+- 你离开电脑，只带手机。
+- 你想看 Codex 是否卡住、是否需要授权、最后输出是什么。
+- 你想继续发一句任务，比如“继续实现 A”、“中断当前任务”、“只回复 OK”。
 
-![聊天主界面示意](docs/assets/mobile-chat-preview.svg)
+传统远程桌面能做到这些，但手机上操作很重。`Codex Remote PWA` 走的是更轻的路：电脑负责执行，手机只显示高价值状态和关键控制。
 
-### 会话切换抽屉
+## 架构
 
-![会话切换抽屉示意](docs/assets/mobile-drawer-preview.svg)
-
-## 这轮对照竞品后的优化
-
-- `Onboarding`：在抽屉里新增“手机打开链接”，把当前地址和连接密码打包成一条可直接发到手机的链接
-- `会话继续`：保留“最近的 Codex”入口，优先服务继续已有 thread，而不是重新新建机器人
-- `开源表达`：重做 README 图片和结构，让项目定位、架构和边界更容易一眼看懂
-
-## 当前能力
-
-- 在手机端继续已有的 Codex 会话
-- 查看最近导入的本地 Codex session
-- 通过 WebSocket 实时接收最后输出
-- 持久化 `session / run / event / approval`
-- 支持两种运行时：
-  - `codex app-server` WebSocket 运行时
-  - `codex exec --json` CLI fallback
-- 在手机端展示等待授权的动作
-
-## 当前边界
-
-- 手机端的授权动作目前已经可以显示和持久化
-- 但还没有把“允许 / 拒绝”完整回写到上游 `codex app-server`
-- 所以当前更适合：
-  - 继续聊天
-  - 查看输出
-  - 切换会话
-  - 观察授权请求
-
-## 工作方式
+### 本机直连
 
 ```text
 手机浏览器 / PWA
-  -> REST + WebSocket bridge
+  -> HTTP + WebSocket bridge
   -> SQLite session store
   -> Codex runtime adapter
-      -> codex app-server（优先）
-      -> codex exec --json（兜底）
+      -> codex app-server
+      -> codex exec --json
 ```
 
-## 为什么不是远程桌面
+### Relay + Agent
 
-远程桌面当然能“看到电脑”，但它并不适合这个场景：
+```text
+手机浏览器 / PWA
+  -> WebSocket Relay
+  -> 本机 codex-remote-agent
+  -> 本机 bridge server
+  -> Codex runtime adapter
+```
 
-- 手机上阅读代码和日志很累
-- 移动网络下体验不稳定
-- 交互层级太重，切个会话都很笨
+这个分层借鉴了 Lunel 的核心思路：手机是纯 UI，Relay 只转发，本机 Agent 负责所有真实执行。本项目目前只聚焦 Codex 控制，不做完整 mobile IDE。
 
-这个项目的思路是反过来的：
+## 功能
 
-- 电脑继续跑真正的 Codex
-- 手机只看高价值信息
-- 手机上只暴露最需要的动作
+- 手机端 Apple 风格 PWA 控制台
+- 当前会话控制中心
+- 最近 Codex thread 导入
+- 已导入 session 列表
+- 继续当前会话发送任务
+- WebSocket 实时输出
+- 运行中状态轮询
+- 远程中断
+- 本地图片代理
+- 本地只读模式
+- CLI runtime fallback
+- app-server runtime adapter
+- Relay pairing
+- 本机 Agent 代理 bridge API
 
-## 快速开始
+## 快速开始：本机直连
 
 ### 1. 安装依赖
 
@@ -106,53 +87,92 @@
 npm install
 ```
 
-### 2. 构建所有包
+### 2. 构建
 
 ```bash
 npm run build
 ```
 
-### 3. 启动 `codex app-server`（推荐）
+### 3. 推荐启动 Codex app-server
 
 ```bash
 codex app-server --listen ws://127.0.0.1:8766
 ```
 
-### 4. 启动 bridge server
+### 4. 启动 bridge
 
 ```bash
-BRIDGE_TOKEN=your-secret-token \
+BRIDGE_TOKEN=change-me \
 CODEX_APP_SERVER_URL=ws://127.0.0.1:8766 \
 npm run start --workspace @codex-remote/server
 ```
 
-如果不设置 `CODEX_APP_SERVER_URL`，服务会自动回退到 `codex exec --json`。
+如果不设置 `CODEX_APP_SERVER_URL`，bridge 会回退到 `codex exec --json`。
 
-### 5. 打开本地页面
+### 5. 打开页面
 
 ```text
-http://127.0.0.1:8787/
+http://127.0.0.1:8787/?token=change-me
 ```
 
-## 连接密码说明
+## 快速开始：Relay + Agent
 
-手机端看到的“连接密码”，本质上就是你启动 server 时设置的 `BRIDGE_TOKEN`。
+### 1. 启动 bridge
 
-- 如果页面链接里带了 `?token=...` 或 `?bridgeToken=...`，前端会自动填入
-- 在 `localhost` 开发环境下，会默认填 `change-me`
-- 如果你已经在桌面端保存过连接，抽屉里会生成一条“手机打开链接”，可直接发到手机
+```bash
+BRIDGE_TOKEN=change-me npm run start --workspace @codex-remote/server
+```
+
+### 2. 启动 relay
+
+```bash
+RELAY_PORT=8788 npm run start --workspace @codex-remote/relay
+```
+
+### 3. 创建配对码
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/pairings
+```
+
+返回示例：
+
+```json
+{
+  "code": "ABCD1234",
+  "expiresAt": "2026-04-30T12:00:00.000Z",
+  "appWsUrl": "ws://127.0.0.1:8788/api/relay/app?pair=ABCD1234",
+  "agentWsUrl": "ws://127.0.0.1:8788/api/relay/agent?pair=ABCD1234"
+}
+```
+
+### 4. 启动本机 Agent
+
+```bash
+npm run start --workspace @codex-remote/agent -- \
+  --relay http://127.0.0.1:8788 \
+  --pair ABCD1234 \
+  --bridge http://127.0.0.1:8787 \
+  --token change-me
+```
+
+### 5. 手机打开 Relay 链接
+
+```text
+http://127.0.0.1:8787/?relay=http://127.0.0.1:8788&pair=ABCD1234
+```
+
+真实手机使用时，`relay` 和 PWA 地址需要换成手机能访问的地址。例如 Tailscale、Cloudflare Tunnel、反向代理或公网部署的 relay。
 
 ## 外网访问建议
 
-如果你希望在 4G 或外网下访问家里的那台电脑，推荐通过 `Tailscale` 暴露这套服务，而不是直接把本地端口裸露到公网。
-
-### macOS 安装
+优先推荐 Tailscale。它能避免把本机 8787 直接裸露到公网。
 
 ```bash
 brew install tailscale
 ```
 
-### Rootless userspace daemon 示例
+启动 rootless userspace daemon：
 
 ```bash
 /opt/homebrew/opt/tailscale/bin/tailscaled \
@@ -161,63 +181,98 @@ brew install tailscale
   --state=$HOME/.local/share/tailscale/codex-remote.state
 ```
 
-### 登录
+登录：
 
 ```bash
 tailscale --socket=/tmp/tailscaled-codex.sock up --accept-routes=false --hostname=codex-remote-pwa --qr
 ```
 
-### 发布服务
+发布 bridge：
 
 ```bash
 tailscale --socket=/tmp/tailscaled-codex.sock serve --bg 8787
 ```
 
-### 查看访问地址
+## 配置
+
+### Bridge
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8787` | bridge HTTP 端口 |
+| `BRIDGE_TOKEN` | `change-me` | 手机访问密码 |
+| `CODEX_APP_SERVER_URL` | 空 | Codex app-server WebSocket 地址 |
+| `CODEX_BIN` | `codex` | CLI fallback 使用的 Codex 命令 |
+| `CODEX_REMOTE_LOCAL_ONLY` | `0` | 设置为 `1` 时只读浏览历史 |
+| `DB_PATH` | `./codex-remote.db` | SQLite 数据库路径 |
+
+### Relay
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RELAY_PORT` | `8788` | relay 端口 |
+| `RELAY_HOST` | `0.0.0.0` | relay 监听地址 |
+
+### Agent
+
+Agent 支持命令行参数和环境变量：
 
 ```bash
-tailscale --socket=/tmp/tailscaled-codex.sock serve status
+codex-remote-agent \
+  --relay http://127.0.0.1:8788 \
+  --pair ABCD1234 \
+  --bridge http://127.0.0.1:8787 \
+  --token change-me
 ```
+
+对应环境变量：
+
+- `CODEX_REMOTE_RELAY_URL`
+- `CODEX_REMOTE_PAIR_CODE`
+- `CODEX_REMOTE_BRIDGE_URL`
+- `CODEX_REMOTE_BRIDGE_TOKEN`
 
 ## 仓库结构
 
 ```text
-packages/shared   共享 schema 和类型
-packages/server   bridge server、SQLite、runtime adapter
-packages/web      手机优先的 PWA 前端
-protocol/         app-server 协议定义与生成结果
+packages/shared   共享 schema、类型和 remote protocol
+packages/server   本机 bridge server、SQLite、runtime adapter
+packages/web      手机优先 PWA
+packages/relay    WebSocket pairing relay
+packages/agent    本机 Agent，代理 bridge API 和实时事件
+protocol/         Codex app-server 协议定义与生成结果
 ```
 
 ## 开发命令
 
-- `npm test`
-- `npm run build`
-- `npm run typecheck`
-- `npm run clean`
-- `npm run dev --workspace @codex-remote/server`
-- `npm run start --workspace @codex-remote/server`
-
-## 仓库清理策略
-
-这个仓库默认忽略以下内容：
-
-- 本地 SQLite 数据库
-- 构建产物
-- `node_modules`
-- 本地运行时临时目录
-- 内部实现计划文档
-
-如果只想清掉构建产物，可以运行：
-
 ```bash
+npm run typecheck --workspaces --if-present
+npm test -- --runInBand
+npm run build --workspaces --if-present
 npm run clean
 ```
 
-这个命令不会删除本地 SQLite 会话数据库。
+单包启动：
+
+```bash
+npm run start --workspace @codex-remote/server
+npm run start --workspace @codex-remote/relay
+npm run start --workspace @codex-remote/agent -- --relay http://127.0.0.1:8788 --pair ABCD1234
+```
+
+## 安全边界
+
+- 手机端不要直接暴露本机文件系统能力。
+- Relay 不保存代码、不执行命令，只负责配对和转发。
+- Agent 跑在本机，真实权限等同于当前用户。
+- `BRIDGE_TOKEN` 和 pair code 都应视作临时访问凭证。
+- 公网部署 relay 时应增加 HTTPS、限流、审计和更强的 session token。
 
 ## 后续计划
 
-- 补齐 app-server 授权回写闭环
-- 改善远程会话的历史同步体验
-- 增加 Telegram / Discord 这类轻入口
-- 补充真实产品截图，而不仅是示意图
+- 在 UI 里生成 pair code 和二维码
+- 完成 app-server approve/reject 回写闭环
+- 增加 relay session token，替代长时间复用 pair code
+- 增加 Agent 断线重连和更清晰的连接诊断
+- 补充真实产品截图
+- 根据需要再评估 PTY、文件浏览、Git 面板，而不是默认做成完整 IDE

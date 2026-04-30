@@ -13,6 +13,7 @@ import { Timeline } from "./components/timeline.js";
 import {
   LOCAL_DEV_TOKEN,
   buildConnectionLink,
+  buildRelayConnectionLink,
   inferDefaultConnectionToken,
 } from "./connection.js";
 import { sessionStatusLabel } from "./copy.js";
@@ -21,6 +22,7 @@ import type { RealtimeClient } from "./realtime.js";
 
 type AppProps = {
   client: ApiClient;
+  connectionMode?: "direct" | "relay";
   initialBaseUrl: string;
   initialToken: string;
   onSaveConnection: (input: { baseUrl: string; token: string }) => void;
@@ -41,6 +43,7 @@ function describeError(error: unknown): string {
 
 export function App({
   client,
+  connectionMode = "direct",
   initialBaseUrl,
   initialToken,
   onSaveConnection,
@@ -371,19 +374,24 @@ export function App({
   const isLocalOnly =
     runtimeCapability.runtimeMode === "local-only" ||
     !runtimeCapability.canSendMessages;
+  const isRelayMode = connectionMode === "relay";
   const connectionState = isLocalOnly
     ? "本地只读"
     : error
       ? "待处理"
       : effectiveToken
-        ? "在线"
+        ? isRelayMode
+          ? "Relay 在线"
+          : "在线"
         : "未配置";
   const activeStatus = activeSession?.status ?? (error ? "error" : "idle");
-  const shareLink = buildConnectionLink(
-    baseUrl.trim(),
-    effectiveToken,
-    window.location.origin,
-  );
+  const shareLink = isRelayMode
+    ? buildRelayConnectionLink(baseUrl.trim(), effectiveToken, window.location.href)
+    : buildConnectionLink(
+        baseUrl.trim(),
+        effectiveToken,
+        window.location.origin,
+      );
   const activeStatusLabel = activeSession
     ? sessionStatusLabel(activeSession.status)
     : error
@@ -412,6 +420,7 @@ export function App({
   const lastActivityLabel = activeSession?.updatedAt
     ? formatRelativeTime(activeSession.updatedAt)
     : "等待选择";
+  const transportLabel = isRelayMode ? "Relay" : "本机直连";
 
   useEffect(() => {
     if (!selectedSessionId || !isSessionBusy) {
@@ -587,27 +596,43 @@ export function App({
                   </summary>
 
                   <p className="section-note">
-                    连接密码就是你启动 bridge 时设置的
-                    <code>BRIDGE_TOKEN</code>。如果当前链接带了
-                    <code>?token=...</code>
-                    ，页面会自动填入；本地开发地址默认使用
-                    <code>{LOCAL_DEV_TOKEN}</code>。
+                    {isRelayMode ? (
+                      <>
+                        Relay 模式使用配对码连接手机和本机 Agent。当前链接带
+                        <code>?relay=...&amp;pair=...</code>
+                        时会自动进入远程模式。
+                      </>
+                    ) : (
+                      <>
+                        连接密码就是你启动 bridge 时设置的
+                        <code>BRIDGE_TOKEN</code>。如果当前链接带了
+                        <code>?token=...</code>
+                        ，页面会自动填入；本地开发地址默认使用
+                        <code>{LOCAL_DEV_TOKEN}</code>。
+                      </>
+                    )}
                   </p>
 
                   {shareLink ? (
                     <div className="connection-share">
                       <div className="section-heading">
                         <div>
-                          <p className="eyebrow">手机直达</p>
-                          <h3>手机打开链接</h3>
+                          <p className="eyebrow">{isRelayMode ? "Relay 配对" : "手机直达"}</p>
+                          <h3>{isRelayMode ? "远程控制链接" : "手机打开链接"}</h3>
                         </div>
-                        <span className="meta-chip">自动带密码</span>
+                        <span className="meta-chip">
+                          {isRelayMode ? "自动带配对码" : "自动带密码"}
+                        </span>
                       </div>
                       <p className="section-note">
-                        把这条链接发到手机上，页面会自动填好连接密码，不用再手动输入。
+                        {isRelayMode
+                          ? "把这条链接发到手机上，手机会通过 Relay 找到当前本机 Agent。"
+                          : "把这条链接发到手机上，页面会自动填好连接密码，不用再手动输入。"}
                       </p>
                       <label className="field-stack">
-                        <span className="field-label">手机打开链接</span>
+                        <span className="field-label">
+                          {isRelayMode ? "远程打开链接" : "手机打开链接"}
+                        </span>
                         <input
                           onFocus={(event) => event.target.select()}
                           readOnly
@@ -632,18 +657,30 @@ export function App({
 
                   <form className="connection-form" onSubmit={submitConnection}>
                     <label className="field-stack">
-                      <span className="field-label">服务器地址</span>
+                      <span className="field-label">
+                        {isRelayMode ? "Relay 地址" : "服务器地址"}
+                      </span>
                       <input
                         onChange={(event) => setBaseUrl(event.target.value)}
-                        placeholder="例如：https://bridge.example.test"
+                        placeholder={
+                          isRelayMode
+                            ? "例如：https://relay.example.test"
+                            : "例如：https://bridge.example.test"
+                        }
                         value={baseUrl}
                       />
                     </label>
                     <label className="field-stack">
-                      <span className="field-label">连接密码</span>
+                      <span className="field-label">
+                        {isRelayMode ? "配对码" : "连接密码"}
+                      </span>
                       <input
                         onChange={(event) => setToken(event.target.value)}
-                        placeholder="留空时会尝试从当前链接自动读取"
+                        placeholder={
+                          isRelayMode
+                            ? "Agent 和手机使用同一个 pair code"
+                            : "留空时会尝试从当前链接自动读取"
+                        }
                         type="password"
                         value={token}
                       />
@@ -758,6 +795,11 @@ export function App({
               <span>更新</span>
               <strong>{lastActivityLabel}</strong>
             </div>
+          </div>
+          <div className="command-deck__transport" aria-label="连接通道">
+            <span>{transportLabel}</span>
+            <span>{runtimeCapability.runtimeMode}</span>
+            <span>{runtimeCapability.canSendMessages ? "可发送任务" : "只读"}</span>
           </div>
         </section>
 

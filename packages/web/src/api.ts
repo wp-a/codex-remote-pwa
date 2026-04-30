@@ -13,6 +13,8 @@ export type BridgeHealth = {
   ok: boolean;
   runtimeMode: "app-server" | "cli" | "local-only";
   canSendMessages: boolean;
+  transport?: "direct" | "relay";
+  agent?: unknown;
 };
 
 export type ApiClient = {

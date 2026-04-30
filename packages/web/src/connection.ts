@@ -45,3 +45,26 @@ export function buildConnectionLink(
     return null;
   }
 }
+
+export function buildRelayConnectionLink(
+  relayUrl: string,
+  pairCode: string,
+  fallbackOrigin?: string,
+): string | null {
+  if (!relayUrl.trim() || !pairCode.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(
+      fallbackOrigin ??
+        (typeof window === "undefined" ? "http://127.0.0.1:8787/" : window.location.href),
+    );
+    parsed.searchParams.delete("token");
+    parsed.searchParams.set("relay", relayUrl.trim());
+    parsed.searchParams.set("pair", pairCode.trim());
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}

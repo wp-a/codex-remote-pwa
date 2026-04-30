@@ -6,7 +6,9 @@
   "workspaces": [
     "packages/shared",
     "packages/server",
-    "packages/web"
+    "packages/web",
+    "packages/relay",
+    "packages/agent"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

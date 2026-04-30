@@ -131,3 +131,75 @@ export const codexSessionSummarySchema = z.object({
   updatedAt: z.string(),
   importedSessionId: z.string().nullable(),
 });
+
+export const remoteRoleSchema = z.enum(["app", "agent"]);
+
+export const remoteNamespaceSchema = z.enum([
+  "bridge",
+  "health",
+  "pairing",
+  "system",
+]);
+
+export const remoteRequestActionSchema = z.enum([
+  "health",
+  "list_sessions",
+  "list_codex_sessions",
+  "create_session",
+  "import_codex_session",
+  "get_snapshot",
+  "send_message",
+  "interrupt",
+  "approve_once",
+  "approve_turn",
+  "reject_approval",
+  "subscribe_session",
+  "unsubscribe_session",
+]);
+
+export const remoteEventActionSchema = z.enum([
+  "connected",
+  "peer_connected",
+  "peer_disconnected",
+  "heartbeat",
+  "timeline_event",
+  "agent_status",
+]);
+
+const remoteBaseMessageSchema = z.object({
+  v: z.literal(1),
+  id: z.string().min(1),
+  ns: remoteNamespaceSchema,
+  action: z.string().min(1),
+  ts: z.number().int().nonnegative(),
+});
+
+export const remoteRequestSchema = remoteBaseMessageSchema.extend({
+  kind: z.literal("request"),
+  action: remoteRequestActionSchema,
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const remoteResponseSchema = remoteBaseMessageSchema.extend({
+  kind: z.literal("response"),
+  ok: z.boolean(),
+  payload: z.record(z.string(), z.unknown()).default({}),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
+});
+
+export const remoteEventSchema = remoteBaseMessageSchema.extend({
+  kind: z.literal("event"),
+  action: remoteEventActionSchema,
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const remoteMessageSchema = z.discriminatedUnion("kind", [
+  remoteRequestSchema,
+  remoteResponseSchema,
+  remoteEventSchema,
+]);

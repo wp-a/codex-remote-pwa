@@ -1,0 +1,29 @@
+{
+  "name": "@codex-remote/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "codex-remote-agent": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "prebuild": "npm run build --workspace @codex-remote/shared",
+    "pretest": "npm run build --workspace @codex-remote/shared",
+    "pretypecheck": "npm run build --workspace @codex-remote/shared",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@codex-remote/shared": "0.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "vitest": "^3.2.4"
+  }
+}

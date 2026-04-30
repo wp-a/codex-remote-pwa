@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   LOCAL_DEV_TOKEN,
   buildConnectionLink,
+  buildRelayConnectionLink,
   inferDefaultConnectionToken,
 } from "./connection.js";
 
@@ -31,5 +32,15 @@ describe("connection helpers", () => {
 
   it("does not build a share link without a token", () => {
     expect(buildConnectionLink("https://bridge.example.test", "")).toBeNull();
+  });
+
+  it("builds a relay pairing link for the current PWA", () => {
+    expect(
+      buildRelayConnectionLink(
+        "https://relay.example.test",
+        " ABC123 ",
+        "https://app.example.test/?token=stale",
+      ),
+    ).toBe("https://app.example.test/?relay=https%3A%2F%2Frelay.example.test&pair=ABC123");
   });
 });

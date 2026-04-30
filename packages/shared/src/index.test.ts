@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   approvalRequestSchema,
+  remoteEventSchema,
+  remoteMessageSchema,
+  remoteRequestSchema,
+  remoteResponseSchema,
   sessionSchema,
   sessionSnapshotSchema,
   timelineEventSchema,
@@ -48,5 +52,49 @@ describe("shared schemas", () => {
 
     expect(snapshot.events[0]?.type).toBe("assistant_message");
     expect(snapshot.approvals[0]?.status).toBe("pending");
+  });
+
+  it("parses relay protocol request, response, and event envelopes", () => {
+    const request = remoteRequestSchema.parse({
+      v: 1,
+      kind: "request",
+      id: "msg_1",
+      ns: "bridge",
+      action: "send_message",
+      ts: 1,
+      payload: {
+        sessionId: "session_1",
+        text: "继续修复 UI",
+      },
+    });
+
+    const response = remoteResponseSchema.parse({
+      v: 1,
+      kind: "response",
+      id: request.id,
+      ns: "bridge",
+      action: request.action,
+      ts: 2,
+      ok: true,
+      payload: {
+        id: "run_1",
+      },
+    });
+
+    const event = remoteEventSchema.parse({
+      v: 1,
+      kind: "event",
+      id: "event_1",
+      ns: "bridge",
+      action: "timeline_event",
+      ts: 3,
+      payload: {
+        sessionId: "session_1",
+      },
+    });
+
+    expect(remoteMessageSchema.parse(request).kind).toBe("request");
+    expect(remoteMessageSchema.parse(response).kind).toBe("response");
+    expect(remoteMessageSchema.parse(event).kind).toBe("event");
   });
 });
