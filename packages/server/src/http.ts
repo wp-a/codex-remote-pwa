@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
 
-import type { ApprovalStatus, CodexSessionSummary } from "@codex-remote/shared";
+import {
+  accessCandidateSchema,
+  type AccessCandidate,
+  type ApprovalStatus,
+  type CodexSessionSummary,
+} from "@codex-remote/shared";
 
 import type { EventBus } from "./event-bus.js";
 import type { ImportedTranscriptEntry } from "./rollout-history.js";
@@ -26,8 +31,11 @@ type RuntimeController = {
 };
 
 type RuntimeMode = "app-server" | "cli" | "local-only";
+const MAX_ACCESS_CANDIDATES = 8;
+const MAX_RAW_ACCESS_CANDIDATES = 64;
 
 type CreateBridgeHttpOptions = {
+  accessCandidates?: AccessCandidate[];
   authToken: string;
   codexSessions?: {
     getByThreadId: (threadId: string) => CodexSessionSummary | null;
@@ -50,6 +58,28 @@ function bearerToken(header: string | undefined): string | null {
   }
 
   return header.slice("Bearer ".length).trim();
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "::ffff:127.0.0.1"
+  );
+}
+
+function validateAccessCandidates(value: unknown): AccessCandidate[] | null {
+  if (!Array.isArray(value) || value.length > MAX_RAW_ACCESS_CANDIDATES) return null;
+  const candidates: AccessCandidate[] = [];
+  const seenUrls = new Set<string>();
+  for (const candidate of value) {
+    const parsed = accessCandidateSchema.safeParse(candidate);
+    if (!parsed.success) return null;
+    if (seenUrls.has(parsed.data.url)) continue;
+    seenUrls.add(parsed.data.url);
+    if (candidates.length < MAX_ACCESS_CANDIDATES) candidates.push(parsed.data);
+  }
+  return candidates;
 }
 
 function queryToken(value: unknown): string | null {
@@ -156,6 +186,7 @@ function sendLocalImage(response: express.Response, rawPath: string): boolean {
 
 export function createBridgeHttp(options: CreateBridgeHttpOptions) {
   const app = express();
+  let accessCandidates = [...(options.accessCandidates ?? [])];
   app.use(express.json());
 
   function seedImportedHistory(sessionId: string, threadId: string) {
@@ -163,11 +194,21 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
       options.codexSessions?.getHistoryByThreadId(threadId, 120) ?? [];
 
     importedHistory.forEach((entry, index) => {
+      if (entry.role === "context_compaction") {
+        options.service.appendEvent({
+          sessionId,
+          runId: `import_${threadId}_${index + 1}`,
+          type: "context_compaction",
+          ts: entry.ts,
+        });
+        return;
+      }
+
       options.service.appendEvent({
         sessionId,
         runId: `import_${threadId}_${index + 1}`,
         type: entry.role === "user" ? "user_message" : "assistant_message",
-        text: entry.text,
+        text: entry.text ?? "",
         ts: entry.ts,
       });
     });
@@ -211,11 +252,30 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
     response.status(401).json({ error: "Unauthorized" });
   });
 
+  app.post("/api/access-candidates", (request, response) => {
+    if (bearerToken(request.header("authorization")) !== options.authToken) {
+      response.status(401).json({ error: "Bearer authentication required." });
+      return;
+    }
+    if (!isLoopbackAddress(request.socket.remoteAddress)) {
+      response.status(403).json({ error: "Loopback access required." });
+      return;
+    }
+    const nextCandidates = validateAccessCandidates(request.body?.accessCandidates);
+    if (!nextCandidates) {
+      response.status(400).json({ error: "Invalid access candidates." });
+      return;
+    }
+    accessCandidates = nextCandidates;
+    response.json({ accessCandidates });
+  });
+
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
       runtimeMode: options.runtimeMode ?? (options.runtime ? "cli" : "local-only"),
       canSendMessages: Boolean(options.runtime),
+      accessCandidates,
     });
   });
 
@@ -377,6 +437,14 @@ export function createBridgeHttp(options: CreateBridgeHttpOptions) {
                   runId: run.id,
                   type: "system",
                   text: signal.text,
+                  ts: new Date().toISOString(),
+                });
+                break;
+              case "context_compaction":
+                options.service.appendEvent({
+                  sessionId: session.id,
+                  runId: run.id,
+                  type: "context_compaction",
                   ts: new Date().toISOString(),
                 });
                 break;

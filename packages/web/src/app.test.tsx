@@ -34,6 +34,13 @@ const snapshot: SessionSnapshot = {
       ts: "2026-04-18T10:00:00.000Z",
     },
     {
+      id: "event_hist_compaction_1",
+      sessionId: session.id,
+      runId: "import_1",
+      type: "context_compaction",
+      ts: "2026-04-18T10:00:00.500Z",
+    },
+    {
       id: "event_hist_assistant_1",
       sessionId: session.id,
       runId: "import_1",
@@ -99,7 +106,7 @@ describe("App", () => {
     }
   });
 
-  it("opens and closes the session drawer while keeping the main console focused", async () => {
+  it("opens and closes the session picker while keeping the main console focused", async () => {
     const client = {
       listSessions: async () => [session],
       listCodexSessions: async () => [],
@@ -128,22 +135,27 @@ describe("App", () => {
       />,
     );
 
-    expect(await screen.findByRole("button", { name: "打开会话抽屉" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "会话抽屉" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "选择会话" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "选择会话" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "打开会话抽屉" }));
+    await user.click(screen.getByRole("button", { name: "选择会话" }));
 
-    expect(await screen.findByRole("dialog", { name: "会话抽屉" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "选择会话" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "已保存" }));
     expect(screen.getByRole("button", { name: /Demo Session/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "关闭会话抽屉" }));
+    await user.click(screen.getAllByRole("button", { name: "关闭会话选择" })[1]!);
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "会话抽屉" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "选择会话" })).not.toBeInTheDocument();
     });
 
     expect(await screen.findByRole("heading", { level: 1, name: "Demo Session" })).toBeInTheDocument();
     expect(await screen.findByText("这是之前的用户问题")).toBeInTheDocument();
+    expect(await screen.findByText("上下文压缩")).toBeInTheDocument();
+    expect(
+      await screen.findByText("前面的对话已被压缩成摘要，后续回复会基于压缩后的上下文继续。"),
+    ).toBeInTheDocument();
     expect(await screen.findByText("这是之前的助手回答")).toBeInTheDocument();
     expect(screen.getByText("继续当前会话")).toBeInTheDocument();
     expect(
@@ -152,7 +164,7 @@ describe("App", () => {
     expect(screen.queryByText("手机控制台")).not.toBeInTheDocument();
   });
 
-  it("creates a new session from the sidebar form", async () => {
+  it("creates a new session from Settings", async () => {
     const createSession = vi.fn(async () => session);
     const client = {
       listSessions: async () => [],
@@ -182,8 +194,9 @@ describe("App", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
-    await user.type(screen.getByPlaceholderText("例如：官网改版"), "Demo Session");
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+    await user.click(screen.getByText("从路径新建"));
+    await user.type(screen.getByLabelText("会话名称"), "Demo Session");
     await user.type(
       screen.getByPlaceholderText("/Users/you/project"),
       "/workspace/demo",
@@ -259,15 +272,14 @@ describe("App", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
-    await user.click((await screen.findAllByRole("button", { name: /Existing Codex Session/ }))[0]!);
+    await user.click(await screen.findByRole("button", { name: /Existing Codex Session/ }));
 
     await waitFor(() => {
       expect(importCodexSession).toHaveBeenCalledWith("thread_native_1");
     });
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "会话抽屉" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "选择会话" })).not.toBeInTheDocument();
     });
 
     expect(
@@ -357,7 +369,7 @@ describe("App", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
     await user.click(screen.getByRole("button", { name: "保存连接" }));
 
     expect(onSaveConnection).toHaveBeenCalledWith({
@@ -395,12 +407,12 @@ describe("App", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
 
     expect(screen.getByDisplayValue(
       "https://bridge.example.test/remote?view=chat&token=bridge-secret",
     )).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "复制链接" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制访问链接" })).toBeInTheDocument();
   });
 
   it("re-imports an already linked native session so older bridge sessions can backfill history", async () => {
@@ -460,7 +472,7 @@ describe("App", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "打开会话抽屉" }));
+    await user.click(await screen.findByRole("button", { name: "选择会话" }));
     await user.click(
       (await screen.findAllByRole("button", { name: /Existing Codex Session/ }))[0]!,
     );
@@ -539,11 +551,12 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Demo Session" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "打开会话抽屉" }));
+    await user.click(screen.getByRole("button", { name: "选择会话" }));
+    await user.click(screen.getByRole("tab", { name: "已保存" }));
     await user.click(screen.getByRole("button", { name: /Second Session/ }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "Second Session" })).toBeInTheDocument();
-    expect(screen.getByText("/workspace/second")).toBeInTheDocument();
+    expect(screen.getByTitle("/workspace/second")).toBeInTheDocument();
     expect(screen.queryByText("这是之前的助手回答")).not.toBeInTheDocument();
 
     resolveSecondSnapshot?.(snapshotTwo);
@@ -630,11 +643,11 @@ describe("App", () => {
 
     const user = userEvent.setup();
 
-    expect(await screen.findByRole("button", { name: "中断" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "停止任务" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    expect(screen.getByText("当前任务还在运行，请先中断。")).toBeInTheDocument();
+    expect(screen.getByText("当前任务还在运行，请先停止。")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "中断" }));
+    await user.click(screen.getByRole("button", { name: "停止任务" }));
 
     await waitFor(() => {
       expect(interrupt).toHaveBeenCalledWith("session_1");

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { createApiClient } from "./api.js";
 import { App } from "./app.js";
-import { inferDefaultConnectionToken } from "./connection.js";
+import { resolveDirectConnectionConfig } from "./connection.js";
 import { createRealtimeClient } from "./realtime.js";
 import { createRemoteBridge } from "./remote-bridge.js";
 import "./styles.css";
@@ -48,17 +48,22 @@ function loadConnectionConfig(): ConnectionConfig {
     };
   }
 
-  const baseUrl =
-    window.localStorage.getItem("codex-remote.origin") ?? window.location.origin;
-  const storedToken = window.localStorage.getItem("codex-remote.token");
+  const directConfig = resolveDirectConnectionConfig(
+    window.location.href,
+    window.localStorage.getItem("codex-remote.origin"),
+    window.localStorage.getItem("codex-remote.token"),
+  );
+
+  if (directConfig.explicitUrlToken) {
+    window.localStorage.setItem("codex-remote.mode", "direct");
+    window.localStorage.setItem("codex-remote.origin", directConfig.baseUrl);
+    window.localStorage.setItem("codex-remote.token", directConfig.token);
+  }
 
   return {
-    baseUrl,
+    baseUrl: directConfig.baseUrl,
     mode: "direct",
-    token:
-      storedToken ??
-      inferDefaultConnectionToken(baseUrl, window.location.origin) ??
-      "",
+    token: directConfig.token,
   };
 }
 

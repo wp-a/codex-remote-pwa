@@ -56,6 +56,10 @@ describe("CliJsonAdapter", () => {
         '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"DONE"}}',
       ),
       ...adapter.parseStdoutLine(
+        '{"type":"item.completed","item":{"id":"item_3","type":"compaction"}}',
+      ),
+      ...adapter.parseStdoutLine('{"type":"thread.compacted"}'),
+      ...adapter.parseStdoutLine(
         '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}',
       ),
       ...adapter.parseStderrLine("warning: something noisy"),
@@ -80,6 +84,8 @@ describe("CliJsonAdapter", () => {
         exitCode: 0,
       },
       { type: "assistant_message", text: "DONE" },
+      { type: "context_compaction" },
+      { type: "context_compaction" },
       {
         type: "turn_completed",
         usage: {

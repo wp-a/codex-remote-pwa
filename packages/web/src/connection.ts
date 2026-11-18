@@ -1,5 +1,11 @@
 export const LOCAL_DEV_TOKEN = "change-me";
 
+export type DirectConnectionConfig = {
+  baseUrl: string;
+  explicitUrlToken: boolean;
+  token: string;
+};
+
 function isLoopbackHost(hostname: string): boolean {
   return hostname === "127.0.0.1" || hostname === "localhost";
 }
@@ -25,6 +31,35 @@ export function inferDefaultConnectionToken(
   } catch {
     return null;
   }
+}
+
+export function resolveDirectConnectionConfig(
+  currentUrl: string,
+  storedOrigin: string | null,
+  storedToken: string | null,
+): DirectConnectionConfig {
+  const parsed = new URL(currentUrl);
+  const urlToken =
+    parsed.searchParams.get("token") ??
+    parsed.searchParams.get("bridgeToken");
+
+  if (urlToken) {
+    return {
+      baseUrl: parsed.origin,
+      explicitUrlToken: true,
+      token: urlToken,
+    };
+  }
+
+  const baseUrl = storedOrigin ?? parsed.origin;
+  return {
+    baseUrl,
+    explicitUrlToken: false,
+    token:
+      storedToken ??
+      inferDefaultConnectionToken(baseUrl, parsed.origin) ??
+      "",
+  };
 }
 
 export function buildConnectionLink(

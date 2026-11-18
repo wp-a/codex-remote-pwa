@@ -9,6 +9,7 @@ import WebSocket from "ws";
 
 import type { CodexSessionSummary } from "@codex-remote/shared";
 
+import { parseAccessCandidates } from "./access-info.js";
 import { SqliteStore } from "./db.js";
 import { EventBus } from "./event-bus.js";
 import { createBridgeHttp } from "./http.js";
@@ -40,6 +41,62 @@ describe("createBridgeHttp", () => {
       rmSync(staticDir, { force: true, recursive: true });
       staticDir = null;
     }
+  });
+
+  it("exposes access candidates only through authenticated health", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+    const accessCandidates = parseAccessCandidates(
+      JSON.stringify([
+        {
+          kind: "local",
+          label: "This Mac",
+          url: "http://127.0.0.1:8790/?token=secret",
+        },
+        {
+          kind: "tailscale",
+          label: "Tailnet",
+          url: "https://mac.example.ts.net/?token=secret",
+        },
+      ]),
+    );
+    const bridge = createBridgeHttp({
+      accessCandidates,
+      authToken: "secret",
+      eventBus,
+      runtime: null,
+      service,
+    });
+
+    await request(bridge.app).get("/api/health").expect(401);
+
+    const response = await request(bridge.app)
+      .get("/api/health")
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(response.body.accessCandidates).toEqual(accessCandidates);
+  });
+
+  it("returns an empty health candidate list for malformed environment input", async () => {
+    store = new SqliteStore(":memory:");
+    const eventBus = new EventBus();
+    const service = new SessionService(store, eventBus);
+    const bridge = createBridgeHttp({
+      accessCandidates: parseAccessCandidates("not json"),
+      authToken: "secret",
+      eventBus,
+      runtime: null,
+      service,
+    });
+
+    const response = await request(bridge.app)
+      .get("/api/health")
+      .set("Authorization", "Bearer secret")
+      .expect(200);
+
+    expect(response.body.accessCandidates).toEqual([]);
   });
 
   it("creates sessions, posts messages, and streams events over websocket", async () => {

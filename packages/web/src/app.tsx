@@ -7,22 +7,30 @@ import type {
 } from "@codex-remote/shared";
 
 import type { ApiClient, BridgeHealth } from "./api.js";
+import { AppHeader } from "./components/app-header.js";
 import { Composer } from "./components/composer.js";
-import { SessionList } from "./components/session-list.js";
+import { HomeView } from "./components/home-view.js";
+import { SessionPicker } from "./components/session-picker.js";
+import { SettingsSheet } from "./components/settings-sheet.js";
+import type { AccessLink } from "./components/settings-sheet.js";
 import { Timeline } from "./components/timeline.js";
 import {
-  LOCAL_DEV_TOKEN,
   buildConnectionLink,
   buildRelayConnectionLink,
   inferDefaultConnectionToken,
 } from "./connection.js";
 import { sessionStatusLabel } from "./copy.js";
-import { compactPath, formatRelativeTime } from "./format.js";
+import { compactPath } from "./format.js";
 import type { RealtimeClient } from "./realtime.js";
+import {
+  resolveInitialSessionId,
+  selectionStorageKey,
+  type ConnectionMode,
+} from "./session-preferences.js";
 
 type AppProps = {
   client: ApiClient;
-  connectionMode?: "direct" | "relay";
+  connectionMode?: ConnectionMode;
   initialBaseUrl: string;
   initialToken: string;
   onSaveConnection: (input: { baseUrl: string; token: string }) => void;
@@ -32,13 +40,29 @@ type AppProps = {
 function describeError(error: unknown): string {
   if (error instanceof Error) {
     if (error.message.includes("HTTP 401")) {
-      return "连接密码缺失或无效，请在左侧抽屉里重新保存连接。";
+      return "连接密码缺失或无效，请在设置中重新保存连接。";
     }
 
     return error.message;
   }
 
   return "发生了未预期错误";
+}
+
+function readSelection(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSelection(key: string, sessionId: string): void {
+  try {
+    window.localStorage.setItem(key, sessionId);
+  } catch {
+    // Selection persistence is optional when storage is unavailable.
+  }
 }
 
 export function App({
@@ -51,10 +75,13 @@ export function App({
 }: AppProps) {
   const defaultToken =
     inferDefaultConnectionToken(initialBaseUrl, window.location.origin) ?? "";
+  const preferenceKey = selectionStorageKey(connectionMode, initialBaseUrl);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [health, setHealth] = useState<BridgeHealth | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newProjectPath, setNewProjectPath] = useState("");
@@ -62,22 +89,54 @@ export function App({
   const [token, setToken] = useState(
     initialToken === "change-me" ? defaultToken : initialToken,
   );
-  const [shareLinkFeedback, setShareLinkFeedback] = useState<string | null>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInterrupting, setIsInterrupting] = useState(false);
-  const [runtimeCapability, setRuntimeCapability] = useState<{
-    runtimeMode: BridgeHealth["runtimeMode"] | "unknown";
-    canSendMessages: boolean;
-  }>({
-    runtimeMode: "unknown",
-    canSendMessages: true,
-  });
+  const [sendingSessionId, setSendingSessionId] = useState<string | null>(null);
+  const [pendingRunSessionIds, setPendingRunSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const selectedSessionIdRef = useRef<string | null>(null);
+  const sendingSessionIdRef = useRef<string | null>(null);
+  const snapshotRequestIdRef = useRef(0);
   const [error, setError] = useState<string | null>(
     (!initialToken || initialToken === "change-me") && !defaultToken
-      ? "还没有连接密码，请先在左侧抽屉里保存连接。"
+      ? "还没有连接密码，请先在设置中保存连接。"
       : null,
   );
+
+  function persistAndSelect(sessionId: string) {
+    setSnapshot(null);
+    selectedSessionIdRef.current = sessionId;
+    setSelectedSessionId(sessionId);
+    writeSelection(preferenceKey, sessionId);
+  }
+
+  function markPendingRun(sessionId: string) {
+    setPendingRunSessionIds((current) => {
+      if (current.has(sessionId)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(sessionId);
+      return next;
+    });
+  }
+
+  function clearPendingRun(sessionId: string) {
+    setPendingRunSessionIds((current) => {
+      if (!current.has(sessionId)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.delete(sessionId);
+      return next;
+    });
+  }
 
   function applySnapshot(nextSnapshot: SessionSnapshot) {
     setSnapshot(nextSnapshot);
@@ -89,55 +148,39 @@ export function App({
   }
 
   useEffect(() => {
-    setShareLinkFeedback(null);
-  }, [baseUrl, token]);
-
-  useEffect(() => {
-    if (!shareLinkFeedback) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setShareLinkFeedback(null);
-    }, 2200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [shareLinkFeedback]);
-
-  useEffect(() => {
     let cancelled = false;
+    setIsLoading(true);
 
-    client
-      .getHealth?.()
-      .then((health) => {
+    const healthRequest = client.getHealth?.()
+      .then((nextHealth) => {
         if (!cancelled) {
-          setRuntimeCapability({
-            runtimeMode: health.runtimeMode,
-            canSendMessages: health.canSendMessages,
-          });
+          setHealth(nextHealth);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRuntimeCapability({
-            runtimeMode: "unknown",
-            canSendMessages: true,
-          });
+          setHealth(null);
         }
       });
 
-    client
+    const sessionsRequest = client
       .listSessions()
       .then((nextSessions) => {
         if (cancelled) {
           return;
         }
 
-        setError(null);
+        const nextSelection = resolveInitialSessionId(
+          nextSessions,
+          readSelection(preferenceKey),
+        );
         setSessions(nextSessions);
-        setSelectedSessionId((current) => current ?? nextSessions[0]?.id ?? null);
+        selectedSessionIdRef.current = nextSelection;
+        setSelectedSessionId(nextSelection);
+        if (nextSelection) {
+          writeSelection(preferenceKey, nextSelection);
+        }
+        setError(null);
       })
       .catch((nextError) => {
         if (!cancelled) {
@@ -145,7 +188,7 @@ export function App({
         }
       });
 
-    client
+    const nativeSessionsRequest = client
       .listCodexSessions()
       .then((nextSessions) => {
         if (!cancelled) {
@@ -158,28 +201,48 @@ export function App({
         }
       });
 
+    void Promise.allSettled([
+      healthRequest,
+      sessionsRequest,
+      nativeSessionsRequest,
+    ]).then(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    });
+
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, preferenceKey]);
 
   useEffect(() => {
     if (!selectedSessionId) {
+      snapshotRequestIdRef.current += 1;
       setSnapshot(null);
       return;
     }
 
     let cancelled = false;
+    const requestId = ++snapshotRequestIdRef.current;
     client
       .getSnapshot(selectedSessionId)
       .then((nextSnapshot) => {
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          requestId === snapshotRequestIdRef.current &&
+          selectedSessionIdRef.current === selectedSessionId
+        ) {
           setError(null);
           applySnapshot(nextSnapshot);
         }
       })
       .catch((nextError) => {
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          requestId === snapshotRequestIdRef.current &&
+          selectedSessionIdRef.current === selectedSessionId
+        ) {
           setError(describeError(nextError));
         }
       });
@@ -200,38 +263,208 @@ export function App({
           return current;
         }
 
-        return {
-          ...current,
-          events: [...current.events, event],
-        };
+        return { ...current, events: [...current.events, event] };
       });
     });
   }, [realtime, selectedSessionId]);
+
+  const selectedSession =
+    sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const activeSnapshot =
+    snapshot && snapshot.session.id === selectedSessionId ? snapshot : null;
+  const activeSession = activeSnapshot?.session ?? selectedSession;
+  const effectiveToken =
+    token.trim() ||
+    inferDefaultConnectionToken(baseUrl.trim(), window.location.origin) ||
+    "";
+  const isLocalOnly =
+    health?.runtimeMode === "local-only" || health?.canSendMessages === false;
+  const connectionLabel = isLocalOnly
+    ? "本地只读"
+    : error
+      ? "连接待检查"
+      : connectionMode === "relay"
+        ? "Relay 在线"
+        : "在线";
+  const isSendingActive = sendingSessionId !== null;
+  const hasPendingRunState = selectedSessionId
+    ? pendingRunSessionIds.has(selectedSessionId)
+    : false;
+  const activeStatus = hasPendingRunState
+    ? "running"
+    : activeSession?.status ?? (error ? "error" : "idle");
+  const activeStatusLabel =
+    activeSession || hasPendingRunState
+      ? sessionStatusLabel(activeStatus)
+      : connectionLabel;
+  const isSessionBusy = hasPendingRunState ||
+    activeSession?.status === "running" ||
+    activeSession?.status === "blocked_approval";
+  const isComposerLocked = isSendingActive || isSessionBusy;
+  const pendingApprovalCount =
+    activeSnapshot?.approvals.filter((approval) => approval.status === "pending")
+      .length ?? 0;
+  const timelineCount = activeSnapshot?.events.length ?? 0;
+  const activePath = activeSession?.projectPath
+    ? compactPath(activeSession.projectPath)
+    : undefined;
+  const composerHint = isSendingActive
+    ? "正在发送任务…"
+    : isLocalOnly
+    ? "本地只读模式：可以查看历史和截图，不能发送新任务。"
+    : isSessionBusy
+      ? activeSession?.status === "blocked_approval"
+        ? "当前任务正在等待授权，请先处理授权或停止。"
+        : "当前任务还在运行，请先停止。"
+      : "继续当前会话";
+  const fallbackShareLink =
+    connectionMode === "relay"
+      ? buildRelayConnectionLink(baseUrl.trim(), effectiveToken, window.location.href)
+      : buildConnectionLink(
+          baseUrl.trim(),
+          effectiveToken,
+          window.location.origin,
+        );
+  const accessLinks: AccessLink[] = [
+    ...(health?.accessCandidates ?? []),
+    ...(fallbackShareLink
+      ? [{ kind: "current" as const, label: "当前页面", url: fallbackShareLink }]
+      : []),
+  ].filter(
+    (link, index, all) =>
+      all.findIndex((candidate) => candidate.url === link.url) === index,
+  );
+
+  useEffect(() => {
+    if (!selectedSessionId || !isSessionBusy) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const poll = async () => {
+      const requestId = ++snapshotRequestIdRef.current;
+      try {
+        const nextSnapshot = await client.getSnapshot(selectedSessionId);
+        if (
+          !cancelled &&
+          requestId === snapshotRequestIdRef.current &&
+          selectedSessionIdRef.current === selectedSessionId
+        ) {
+          applySnapshot(nextSnapshot);
+          clearPendingRun(selectedSessionId);
+          setError(null);
+        }
+      } catch (nextError) {
+        if (
+          !cancelled &&
+          requestId === snapshotRequestIdRef.current &&
+          selectedSessionIdRef.current === selectedSessionId
+        ) {
+          setError(describeError(nextError));
+        }
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(() => void poll(), 1500);
+        }
+      }
+    };
+
+    timer = window.setTimeout(() => void poll(), 1500);
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [client, selectedSessionId, isSessionBusy]);
+
+  useEffect(() => {
+    if (!activeSnapshot) {
+      return;
+    }
+
+    const timelineEnd = timelineEndRef.current;
+    if (typeof timelineEnd?.scrollIntoView === "function") {
+      timelineEnd.scrollIntoView({ block: "end", behavior: "auto" });
+    }
+  }, [activeSnapshot, pendingApprovalCount, timelineCount]);
+
+  useEffect(() => {
+    if (!copyFeedback) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setCopyFeedback(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [copyFeedback]);
 
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
       !selectedSessionId ||
       !message.trim() ||
-      isSessionBusy ||
-      !runtimeCapability.canSendMessages
+      isComposerLocked ||
+      sendingSessionIdRef.current !== null ||
+      isLocalOnly
     ) {
       return;
     }
 
+    const sessionId = selectedSessionId;
     const text = message.trim();
+    sendingSessionIdRef.current = sessionId;
+    setSendingSessionId(sessionId);
     setMessage("");
     try {
-      await client.sendMessage(selectedSessionId, text);
-      setError(null);
+      await client.sendMessage(sessionId, text);
     } catch (nextError) {
-      setMessage(text);
-      setError(describeError(nextError));
+      if (selectedSessionIdRef.current === sessionId) {
+        setMessage(text);
+      }
+      if (selectedSessionIdRef.current === sessionId) {
+        setError(describeError(nextError));
+      }
+      if (sendingSessionIdRef.current === sessionId) {
+        sendingSessionIdRef.current = null;
+      }
+      setSendingSessionId((current) => (current === sessionId ? null : current));
+      return;
+    }
+
+    if (sendingSessionIdRef.current === sessionId) {
+      sendingSessionIdRef.current = null;
+    }
+    setSendingSessionId((current) => (current === sessionId ? null : current));
+    markPendingRun(sessionId);
+    if (selectedSessionIdRef.current !== sessionId) {
+      return;
+    }
+    const requestId = ++snapshotRequestIdRef.current;
+    try {
+      const nextSnapshot = await client.getSnapshot(sessionId);
+      if (
+        requestId === snapshotRequestIdRef.current &&
+        selectedSessionIdRef.current === sessionId
+      ) {
+        applySnapshot(nextSnapshot);
+        clearPendingRun(sessionId);
+        setError(null);
+      }
+    } catch (nextError) {
+      if (
+        requestId === snapshotRequestIdRef.current &&
+        selectedSessionIdRef.current === sessionId
+      ) {
+        setError(`任务已发送，但状态刷新失败：${describeError(nextError)}`);
+      }
     }
   }
 
   async function interruptActiveSession() {
-    if (!selectedSessionId || !canInterrupt) {
+    if (!selectedSessionId || !isSessionBusy) {
       return;
     }
 
@@ -239,17 +472,50 @@ export function App({
     try {
       const result = await client.interrupt(selectedSessionId);
       if (!result.interrupted) {
-        setError("当前会话没有可中断的任务。");
+        setError("当前会话没有可停止的任务。");
         return;
       }
 
+      const requestId = ++snapshotRequestIdRef.current;
       const nextSnapshot = await client.getSnapshot(selectedSessionId);
-      applySnapshot(nextSnapshot);
-      setError(null);
+      if (
+        requestId === snapshotRequestIdRef.current &&
+        selectedSessionIdRef.current === selectedSessionId
+      ) {
+        applySnapshot(nextSnapshot);
+        clearPendingRun(selectedSessionId);
+        setError(null);
+      }
     } catch (nextError) {
-      setError(describeError(nextError));
+      if (selectedSessionIdRef.current === selectedSessionId) {
+        setError(describeError(nextError));
+      }
     } finally {
       setIsInterrupting(false);
+    }
+  }
+
+  async function importCodexSession(threadId: string) {
+    try {
+      const session = await client.importCodexSession(threadId);
+      setSessions((current) => {
+        const exists = current.some((item) => item.id === session.id);
+        return exists
+          ? current.map((item) => (item.id === session.id ? session : item))
+          : [session, ...current];
+      });
+      setCodexSessions((current) =>
+        current.map((item) =>
+          item.threadId === threadId
+            ? { ...item, importedSessionId: session.id }
+            : item,
+        ),
+      );
+      persistAndSelect(session.id);
+      setError(null);
+      setIsPickerOpen(false);
+    } catch (nextError) {
+      setError(describeError(nextError));
     }
   }
 
@@ -264,39 +530,12 @@ export function App({
         title: newTitle.trim(),
         projectPath: newProjectPath.trim(),
       });
-
-      setError(null);
-      setSessions((current) => [...current, session]);
-      setSelectedSessionId(session.id);
+      setSessions((current) => [session, ...current]);
+      persistAndSelect(session.id);
       setNewTitle("");
       setNewProjectPath("");
-      setIsDrawerOpen(false);
-    } catch (nextError) {
-      setError(describeError(nextError));
-    }
-  }
-
-  async function importCodexSession(threadId: string) {
-    try {
-      const session = await client.importCodexSession(threadId);
       setError(null);
-      setSessions((current) => {
-        const existing = current.find((item) => item.id === session.id);
-        if (existing) {
-          return current.map((item) => (item.id === session.id ? session : item));
-        }
-
-        return [session, ...current];
-      });
-      setCodexSessions((current) =>
-        current.map((item) =>
-          item.threadId === threadId
-            ? { ...item, importedSessionId: session.id }
-            : item,
-        ),
-      );
-      setSelectedSessionId(session.id);
-      setIsDrawerOpen(false);
+      setIsSettingsOpen(false);
     } catch (nextError) {
       setError(describeError(nextError));
     }
@@ -306,36 +545,38 @@ export function App({
     approvalId: string,
     action: "once" | "turn" | "reject",
   ) {
-    if (action === "once") {
-      await client.approveOnce(approvalId);
-    } else if (action === "turn") {
-      await client.approveTurn(approvalId);
-    } else {
-      await client.rejectApproval(approvalId);
-    }
-
-    setSnapshot((current) => {
-      if (!current) {
-        return current;
+    try {
+      if (action === "once") {
+        await client.approveOnce(approvalId);
+      } else if (action === "turn") {
+        await client.approveTurn(approvalId);
+      } else {
+        await client.rejectApproval(approvalId);
       }
 
-      return {
-        ...current,
-        approvals: current.approvals.map((approval) =>
-          approval.id === approvalId
-            ? {
-                ...approval,
-                status:
-                  action === "once"
-                    ? "approved_once"
-                    : action === "turn"
-                      ? "approved_turn"
-                      : "rejected",
-              }
-            : approval,
-        ),
-      };
-    });
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              approvals: current.approvals.map((approval) =>
+                approval.id === approvalId
+                  ? {
+                      ...approval,
+                      status:
+                        action === "once"
+                          ? "approved_once"
+                          : action === "turn"
+                            ? "approved_turn"
+                            : "rejected",
+                    }
+                  : approval,
+              ),
+            }
+          : current,
+      );
+    } catch (nextError) {
+      setError(describeError(nextError));
+    }
   }
 
   function submitConnection(event: FormEvent<HTMLFormElement>) {
@@ -354,482 +595,97 @@ export function App({
     }
 
     setError(null);
-    onSaveConnection({
-      baseUrl: baseUrl.trim(),
-      token: nextToken,
-    });
-    setIsDrawerOpen(false);
+    onSaveConnection({ baseUrl: baseUrl.trim(), token: nextToken });
+    setIsSettingsOpen(false);
   }
 
-  const selectedSession =
-    sessions.find((session) => session.id === selectedSessionId) ?? null;
-  const activeSnapshot =
-    snapshot && snapshot.session.id === selectedSessionId ? snapshot : null;
-  const activeSession = activeSnapshot?.session ?? selectedSession;
-  const recentCodexSessions = codexSessions.slice(0, 6);
-  const effectiveToken =
-    token.trim() ||
-    inferDefaultConnectionToken(baseUrl.trim(), window.location.origin) ||
-    "";
-  const isLocalOnly =
-    runtimeCapability.runtimeMode === "local-only" ||
-    !runtimeCapability.canSendMessages;
-  const isRelayMode = connectionMode === "relay";
-  const connectionState = isLocalOnly
-    ? "本地只读"
-    : error
-      ? "待处理"
-      : effectiveToken
-        ? isRelayMode
-          ? "Relay 在线"
-          : "在线"
-        : "未配置";
-  const activeStatus = activeSession?.status ?? (error ? "error" : "idle");
-  const shareLink = isRelayMode
-    ? buildRelayConnectionLink(baseUrl.trim(), effectiveToken, window.location.href)
-    : buildConnectionLink(
-        baseUrl.trim(),
-        effectiveToken,
-        window.location.origin,
-      );
-  const activeStatusLabel = activeSession
-    ? sessionStatusLabel(activeSession.status)
-    : error
-      ? "待处理"
-      : connectionState;
-  const isSessionBusy =
-    activeSession?.status === "running" ||
-    activeSession?.status === "blocked_approval";
-  const canInterrupt = Boolean(activeSession && isSessionBusy);
-  const composerHint = !activeSession
-    ? "先从左上角选择一个会话"
-    : isLocalOnly
-      ? "本地只读模式：可以查看历史和截图，不能发送新任务。"
-    : isSessionBusy
-      ? activeSession.status === "blocked_approval"
-        ? "当前任务正在等待授权，请先处理授权或中断。"
-        : "当前任务还在运行，请先中断。"
-      : "继续当前会话";
-  const activePath = activeSession?.projectPath
-    ? compactPath(activeSession.projectPath)
-    : "从左上角打开会话列表，继续最近的 Codex 会话";
-  const timelineCount = activeSnapshot?.events.length ?? 0;
-  const pendingApprovalCount =
-    activeSnapshot?.approvals.filter((approval) => approval.status === "pending")
-      .length ?? 0;
-  const lastActivityLabel = activeSession?.updatedAt
-    ? formatRelativeTime(activeSession.updatedAt)
-    : "等待选择";
-  const transportLabel = isRelayMode ? "Relay" : "本机直连";
-
-  useEffect(() => {
-    if (!selectedSessionId || !isSessionBusy) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(() => {
-      client
-        .getSnapshot(selectedSessionId)
-        .then((nextSnapshot) => {
-          if (!cancelled) {
-            applySnapshot(nextSnapshot);
-            setError(null);
-          }
-        })
-        .catch((nextError) => {
-          if (!cancelled) {
-            setError(describeError(nextError));
-          }
-        });
-    }, 1500);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [client, selectedSessionId, isSessionBusy]);
-
-  useEffect(() => {
-    if (!activeSnapshot) {
-      return;
-    }
-
-    const timelineEnd = timelineEndRef.current;
-    if (typeof timelineEnd?.scrollIntoView !== "function") {
-      return;
-    }
-
-    timelineEnd.scrollIntoView({
-      block: "end",
-      behavior: "auto",
-    });
-  }, [activeSnapshot, pendingApprovalCount, timelineCount]);
-
-  async function copyShareLink() {
-    if (!shareLink) {
-      return;
-    }
-
+  async function copyAccessLink(link: string) {
     try {
-      await navigator.clipboard.writeText(shareLink);
-      setShareLinkFeedback("已复制");
+      await navigator.clipboard.writeText(link);
+      setCopyFeedback("已复制");
     } catch {
-      setShareLinkFeedback("复制失败，请长按输入框手动复制");
+      setCopyFeedback("复制失败，请长按链接手动复制");
     }
   }
 
   return (
-    <div className="app-shell">
-      {isDrawerOpen ? (
-        <>
-          <button
-            aria-label="点击遮罩关闭抽屉"
-            className="drawer-backdrop"
-            onClick={() => setIsDrawerOpen(false)}
-            type="button"
+    <div className={`app-shell${activeSession ? " is-chat" : " is-home"}`}>
+      <AppHeader
+        connectionLabel={connectionLabel}
+        isStopping={isInterrupting}
+        onOpenSessions={() => setIsPickerOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onStop={() => void interruptActiveSession()}
+        path={activePath}
+        status={activeStatus}
+        statusLabel={activeStatusLabel}
+        title={activeSession?.title ?? "Remote Workbench"}
+      />
+
+      {activeSession ? (
+        <main className="chat-view">
+          {error ? <p className="error-banner error-banner--inline">{error}</p> : null}
+          <section aria-label="消息时间线" className="chat-stream">
+            <Timeline
+              approvals={activeSnapshot?.approvals ?? []}
+              events={activeSnapshot?.events ?? []}
+              mediaBaseUrl={baseUrl.trim()}
+              mediaToken={effectiveToken}
+              onApproveOnce={(id) => void handleApprovalAction(id, "once")}
+              onApproveTurn={(id) => void handleApprovalAction(id, "turn")}
+              onReject={(id) => void handleApprovalAction(id, "reject")}
+            />
+            <div aria-hidden="true" className="timeline-end" ref={timelineEndRef} />
+          </section>
+          <Composer
+            disabled={isComposerLocked || isLocalOnly}
+            hint={composerHint}
+            message={message}
+            onChange={setMessage}
+            onSubmit={submitMessage}
           />
-          <aside
-            aria-label="会话抽屉"
-            aria-modal="true"
-            className="session-drawer"
-            role="dialog"
-          >
-            <div className="session-drawer__inner">
-              <div className="session-drawer__header">
-                <div>
-                  <p className="eyebrow">Codex Remote</p>
-                  <strong>会话切换</strong>
-                </div>
-                <button
-                  aria-label="关闭会话抽屉"
-                  className="session-drawer__close"
-                  onClick={() => setIsDrawerOpen(false)}
-                  type="button"
-                >
-                  关闭
-                </button>
-              </div>
-
-              <section className="surface-card surface-card--hero drawer-current">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">当前会话</p>
-                    <h2>{activeSession?.title ?? "还没有选中会话"}</h2>
-                  </div>
-                  <span className={`session-card__badge is-${activeStatus}`}>
-                    {activeStatusLabel}
-                  </span>
-                </div>
-                <p className="session-column__lede">{activePath}</p>
-                {activeSession?.runtimeThreadId ? (
-                  <div className="drawer-current__meta">
-                    <span className="meta-chip">已连接 Codex</span>
-                  </div>
-                ) : null}
-              </section>
-
-              {recentCodexSessions.length > 0 ? (
-                <section className="surface-card">
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">最近的 Codex</p>
-                      <h2>继续已有会话</h2>
-                    </div>
-                    <span className="section-caption">最近活动的 thread</span>
-                  </div>
-
-                  <div className="native-session-list">
-                    {recentCodexSessions.map((session) => (
-                      <button
-                        className="native-session-list__item"
-                        key={session.threadId}
-                        onClick={() => {
-                          void importCodexSession(session.threadId);
-                        }}
-                        type="button"
-                      >
-                        <div className="session-card__body">
-                          <strong className="session-card__title">{session.title}</strong>
-                          <span className="session-card__path">
-                            {compactPath(session.projectPath)}
-                          </span>
-                          <span className="session-card__meta">
-                            {formatRelativeTime(session.updatedAt)}
-                          </span>
-                        </div>
-                        <span className="session-card__action">
-                          {session.importedSessionId ? "打开" : "继续"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section className="surface-card">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">已导入会话</p>
-                    <h2>工作区列表</h2>
-                  </div>
-                  <span className="section-caption">{sessions.length} 个会话</span>
-                </div>
-
-                <SessionList
-                  onSelect={(sessionId) => {
-                    setSelectedSessionId(sessionId);
-                    setIsDrawerOpen(false);
-                  }}
-                  selectedSessionId={selectedSessionId}
-                  sessions={sessions}
-                />
-              </section>
-
-              {error ? <p className="error-banner">{error}</p> : null}
-
-              <section className="surface-card">
-                <details className="drawer-disclosure" open={!effectiveToken}>
-                  <summary>
-                    <span>连接设置</span>
-                    <span className="meta-chip meta-chip--accent">{connectionState}</span>
-                  </summary>
-
-                  <p className="section-note">
-                    {isRelayMode ? (
-                      <>
-                        Relay 模式使用配对码连接手机和本机 Agent。当前链接带
-                        <code>?relay=...&amp;pair=...</code>
-                        时会自动进入远程模式。
-                      </>
-                    ) : (
-                      <>
-                        连接密码就是你启动 bridge 时设置的
-                        <code>BRIDGE_TOKEN</code>。如果当前链接带了
-                        <code>?token=...</code>
-                        ，页面会自动填入；本地开发地址默认使用
-                        <code>{LOCAL_DEV_TOKEN}</code>。
-                      </>
-                    )}
-                  </p>
-
-                  {shareLink ? (
-                    <div className="connection-share">
-                      <div className="section-heading">
-                        <div>
-                          <p className="eyebrow">{isRelayMode ? "Relay 配对" : "手机直达"}</p>
-                          <h3>{isRelayMode ? "远程控制链接" : "手机打开链接"}</h3>
-                        </div>
-                        <span className="meta-chip">
-                          {isRelayMode ? "自动带配对码" : "自动带密码"}
-                        </span>
-                      </div>
-                      <p className="section-note">
-                        {isRelayMode
-                          ? "把这条链接发到手机上，手机会通过 Relay 找到当前本机 Agent。"
-                          : "把这条链接发到手机上，页面会自动填好连接密码，不用再手动输入。"}
-                      </p>
-                      <label className="field-stack">
-                        <span className="field-label">
-                          {isRelayMode ? "远程打开链接" : "手机打开链接"}
-                        </span>
-                        <input
-                          onFocus={(event) => event.target.select()}
-                          readOnly
-                          value={shareLink}
-                        />
-                      </label>
-                      <div className="connection-share__actions">
-                        <button onClick={() => void copyShareLink()} type="button">
-                          {shareLinkFeedback ?? "复制链接"}
-                        </button>
-                        <a
-                          className="connection-share__open"
-                          href={shareLink}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          在手机打开
-                        </a>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <form className="connection-form" onSubmit={submitConnection}>
-                    <label className="field-stack">
-                      <span className="field-label">
-                        {isRelayMode ? "Relay 地址" : "服务器地址"}
-                      </span>
-                      <input
-                        onChange={(event) => setBaseUrl(event.target.value)}
-                        placeholder={
-                          isRelayMode
-                            ? "例如：https://relay.example.test"
-                            : "例如：https://bridge.example.test"
-                        }
-                        value={baseUrl}
-                      />
-                    </label>
-                    <label className="field-stack">
-                      <span className="field-label">
-                        {isRelayMode ? "配对码" : "连接密码"}
-                      </span>
-                      <input
-                        onChange={(event) => setToken(event.target.value)}
-                        placeholder={
-                          isRelayMode
-                            ? "Agent 和手机使用同一个 pair code"
-                            : "留空时会尝试从当前链接自动读取"
-                        }
-                        type="password"
-                        value={token}
-                      />
-                    </label>
-                    <button type="submit">保存连接</button>
-                  </form>
-                </details>
-              </section>
-
-              <section className="surface-card">
-                <details className="drawer-disclosure">
-                  <summary>
-                    <span>从路径新建</span>
-                    <span className="section-caption">适合临时项目</span>
-                  </summary>
-
-                  <form className="session-create" onSubmit={submitSession}>
-                    <label className="field-stack">
-                      <span className="field-label">会话名称</span>
-                      <input
-                        onChange={(event) => setNewTitle(event.target.value)}
-                        placeholder="例如：官网改版"
-                        value={newTitle}
-                      />
-                    </label>
-                    <label className="field-stack">
-                      <span className="field-label">项目路径</span>
-                      <input
-                        onChange={(event) => setNewProjectPath(event.target.value)}
-                        placeholder="/Users/you/project"
-                        value={newProjectPath}
-                      />
-                    </label>
-                    <button type="submit">创建会话</button>
-                  </form>
-                </details>
-              </section>
-            </div>
-          </aside>
-        </>
-      ) : null}
-
-      <main className="chat-layout">
-        <header className="chat-header">
-          <button
-            aria-label="打开会话抽屉"
-            className="drawer-toggle"
-            onClick={() => setIsDrawerOpen(true)}
-            type="button"
-          >
-            <span className="drawer-toggle__bars" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-          </button>
-
-          <div className="chat-header__copy">
-            <p className="eyebrow">当前会话</p>
-            <h1>{activeSession?.title ?? "先从左上角选择一个会话"}</h1>
-            <p className="chat-header__path">{activePath}</p>
-          </div>
-
-          <div className="chat-header__status">
-            <span className={`status-dot is-${activeStatus}`} />
-            <span className={`session-card__badge is-${activeStatus}`}>
-              {activeStatusLabel}
-            </span>
-            {canInterrupt ? (
-              <button
-                className="interrupt-button"
-                disabled={isInterrupting}
-                onClick={() => {
-                  void interruptActiveSession();
-                }}
-                type="button"
-              >
-                {isInterrupting ? "中断中" : "中断"}
-              </button>
-            ) : null}
-          </div>
-        </header>
-
-        {error ? <p className="error-banner error-banner--inline">{error}</p> : null}
-
-        <section
-          aria-label="会话概览"
-          className={`command-deck is-${activeStatus}`}
-        >
-          <div className="command-deck__content">
-            <div className="command-deck__title">
-              <p className="eyebrow">控制中心</p>
-              <h2>{activeSession?.title ?? "选择一个会话"}</h2>
-              <p>{activeSession ? `项目 ${activePath}` : activePath}</p>
-            </div>
-            <div className="command-deck__state">
-              <span className={`command-deck__pulse is-${activeStatus}`} />
-              <span>{connectionState}</span>
-              <strong>状态 {activeStatusLabel}</strong>
-            </div>
-          </div>
-          <div className="command-deck__metrics">
-            <div>
-              <span>输出</span>
-              <strong>{timelineCount}</strong>
-            </div>
-            <div>
-              <span>授权</span>
-              <strong>{pendingApprovalCount}</strong>
-            </div>
-            <div>
-              <span>更新</span>
-              <strong>{lastActivityLabel}</strong>
-            </div>
-          </div>
-          <div className="command-deck__transport" aria-label="连接通道">
-            <span>{transportLabel}</span>
-            <span>{runtimeCapability.runtimeMode}</span>
-            <span>{runtimeCapability.canSendMessages ? "可发送任务" : "只读"}</span>
-          </div>
-        </section>
-
-        <section aria-label="消息时间线" className="chat-stream">
-          <Timeline
-            approvals={activeSnapshot?.approvals ?? []}
-            events={activeSnapshot?.events ?? []}
-            mediaBaseUrl={baseUrl.trim()}
-            mediaToken={effectiveToken}
-            onApproveOnce={(approvalId) => {
-              void handleApprovalAction(approvalId, "once");
-            }}
-            onApproveTurn={(approvalId) => {
-              void handleApprovalAction(approvalId, "turn");
-            }}
-            onReject={(approvalId) => {
-              void handleApprovalAction(approvalId, "reject");
-            }}
-          />
-          <div aria-hidden="true" className="timeline-end" ref={timelineEndRef} />
-        </section>
-
-        <Composer
-          disabled={!activeSession || isSessionBusy || isLocalOnly}
-          hint={composerHint}
-          message={message}
-          onChange={setMessage}
-          onSubmit={submitMessage}
+        </main>
+      ) : (
+        <HomeView
+          error={error}
+          isLoading={isLoading}
+          onOpenThread={(threadId) => void importCodexSession(threadId)}
+          recentSessions={codexSessions}
         />
-      </main>
+      )}
+
+      <SessionPicker
+        codexSessions={codexSessions}
+        onClose={() => setIsPickerOpen(false)}
+        onOpenCodexSession={(threadId) => void importCodexSession(threadId)}
+        onSelectSession={(sessionId) => {
+          persistAndSelect(sessionId);
+          setIsPickerOpen(false);
+        }}
+        open={isPickerOpen}
+        selectedSessionId={selectedSessionId}
+        sessions={sessions}
+      />
+
+      <SettingsSheet
+        accessLinks={accessLinks}
+        baseUrl={baseUrl}
+        connectionMode={connectionMode}
+        copyFeedback={copyFeedback}
+        health={health}
+        newProjectPath={newProjectPath}
+        newTitle={newTitle}
+        onBaseUrlChange={setBaseUrl}
+        onClose={() => setIsSettingsOpen(false)}
+        onCopyLink={(link) => void copyAccessLink(link)}
+        onCreateSession={submitSession}
+        onNewProjectPathChange={setNewProjectPath}
+        onNewTitleChange={setNewTitle}
+        onSaveConnection={submitConnection}
+        onTokenChange={setToken}
+        open={isSettingsOpen}
+        token={token}
+      />
     </div>
   );
 }

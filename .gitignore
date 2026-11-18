@@ -18,3 +18,13 @@ docs/plans/
 
 npm-debug.log*
 .DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.db

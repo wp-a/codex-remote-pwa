@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const accessCandidateSchema = z.object({
+  kind: z.enum(["local", "lan", "tailscale"]),
+  label: z.string().min(1),
+  url: z
+    .string()
+    .url()
+    .regex(/^https?:\/\//i, "Access candidate URL must use HTTP or HTTPS."),
+});
+
 export const sessionStatusSchema = z.enum([
   "idle",
   "running",
@@ -72,6 +81,13 @@ export const timelineEventSchema = z.discriminatedUnion("type", [
     runId: z.string(),
     type: z.literal("system"),
     text: z.string(),
+    ts: z.string(),
+  }),
+  z.object({
+    id: z.string(),
+    sessionId: z.string(),
+    runId: z.string(),
+    type: z.literal("context_compaction"),
     ts: z.string(),
   }),
 ]);

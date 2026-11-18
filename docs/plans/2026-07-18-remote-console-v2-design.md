@@ -32,14 +32,14 @@ Add a Node launcher at `scripts/start-remote.mjs`, exposed as `npm run remote`. 
 - Check that the configured port is available before spawning children.
 - Start `codex app-server` and the compiled bridge with the resolved environment.
 - Detect LAN IPv4 addresses and a connected Tailscale IPv4 address without modifying either network.
-- Print a concise access panel with local, LAN, and Tailscale URLs plus a terminal QR code for the preferred reachable URL.
+- Verify each local, LAN, and Tailscale candidate against the authenticated bridge health endpoint, then print a concise access panel and terminal QR code for the preferred verified URL.
 - Forward SIGINT/SIGTERM to both child processes and exit non-zero when a required child fails.
 
 The launcher does not build automatically. If required `dist` outputs are absent, it prints `npm run build` as the corrective action. This avoids hidden long-running builds during startup.
 
 ### Bridge Access Metadata
 
-The launcher passes discovered access candidates to the bridge through one JSON environment variable. The bridge exposes them through the authenticated health response. The web client consumes these values only for the Settings share panel. Request execution, session data, and authentication remain unchanged.
+The bridge starts with an empty candidate set. After both child processes are ready, the launcher verifies every discovered origin with authenticated, bounded health requests. Invalid external candidates are dropped and a failed loopback candidate fails startup. The verified set is then published through a Bearer-authenticated, loopback-only bridge endpoint and exposed through the authenticated health response. The web client consumes these values only for the Settings share panel. Request execution and session data remain unchanged.
 
 ### Web State
 
@@ -63,7 +63,7 @@ Home is shown only when no bridge session is selected. It contains:
 - A small empty state when no threads are available.
 - A secondary manual-path action.
 
-Internal orchestration titles such as `<codex_delegation>` are excluded from the recent list. Long titles use two-line clamping and paths remain secondary.
+Non-interactive subagent, automation, spawned-child, archived, and `codex exec` threads are excluded through Codex state metadata, with title-prefix filtering retained only as a legacy fallback. Long titles use two-line clamping and paths remain secondary.
 
 ### Chat
 
@@ -121,7 +121,7 @@ Advanced fields are collapsed by default when the connection is healthy.
 ## Testing And QA
 
 - Launcher unit tests: config creation/reuse, permissions, address preference, port conflict, child shutdown, and failed child propagation.
-- Server tests: authenticated access metadata and invalid environment parsing.
+- Server tests: authenticated access metadata publication, invalid candidate parsing, modern and legacy thread-source filtering, and imported protocol-message hygiene.
 - Web tests: last-session restore, Home fallback, internal-thread filtering, picker search, Settings separation, import transition, and error recovery.
 - Existing runtime, Relay, and timeline tests remain green.
 - Browser QA at 390x844, 430x932, 768x1024, and 1440x900.

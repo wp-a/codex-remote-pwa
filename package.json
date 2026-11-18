@@ -14,11 +14,16 @@
     "build": "npm run build --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
     "dev": "npm run dev --workspace @codex-remote/server",
-    "test": "npm run test --workspaces --if-present",
+    "remote": "node scripts/start-remote.mjs",
+    "test": "npm run test:launcher && npm run test --workspaces --if-present",
+    "test:launcher": "node --test scripts/*.test.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
   }
 }

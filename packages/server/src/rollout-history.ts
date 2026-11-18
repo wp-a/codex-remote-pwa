@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 
 export type ImportedTranscriptEntry = {
-  role: "user" | "assistant";
-  text: string;
+  role: "user" | "assistant" | "context_compaction";
+  text?: string;
   ts: string;
 };
 
@@ -39,6 +39,14 @@ export function loadRolloutHistory(
 
     const parsed = safeParse(trimmed);
     if (!parsed) {
+      continue;
+    }
+
+    if (isCompactionLine(parsed)) {
+      entries.push({
+        role: "context_compaction",
+        ts: parsed.timestamp ?? new Date().toISOString(),
+      });
       continue;
     }
 
@@ -86,10 +94,32 @@ function extractMessageText(line: RolloutLine): string | null {
   return fragments.join("\n\n");
 }
 
+function isCompactionLine(line: RolloutLine): boolean {
+  return (
+    line.type === "compacted" ||
+    line.payload?.type === "context_compacted" ||
+    line.payload?.type === "contextCompaction" ||
+    line.payload?.type === "compaction"
+  );
+}
+
 function shouldSkipUserMessage(role: "user" | "assistant", text: string): boolean {
   if (role !== "user") {
     return false;
   }
 
-  return text.startsWith("<environment_context>");
+  const trimmedStart = text.trimStart();
+  if (
+    trimmedStart.startsWith("<environment_context>") ||
+    trimmedStart.startsWith("# AGENTS.md instructions") ||
+    trimmedStart.startsWith("<in-app-browser-context")
+  ) {
+    return true;
+  }
+
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith("<turn_aborted>") &&
+    trimmed.endsWith("</turn_aborted>")
+  );
 }

@@ -23,7 +23,7 @@
 
 - Relay 默认是轻量内存配对，不是完整生产级账号系统。
 - 授权请求目前能展示和持久化，但上游 app-server 的完整 approve/reject 闭环还需要继续补齐。
-- 还没有内置二维码页面；现在需要用接口创建 pair code。
+- 直连设置页已提供手机访问二维码；Relay 配对码仍需要通过接口创建。
 - 没有做终端、文件浏览器、Git 面板、PTY cell grid，这些先不重复造 Lunel 的完整 IDE。
 
 ## 为什么做这个
@@ -81,25 +81,28 @@
 
 ## 快速开始：本机直连
 
-### 1. 安装依赖
-
 ```bash
 npm install
-```
-
-### 2. 构建
-
-```bash
 npm run build
+npm run remote
 ```
 
-### 3. 推荐启动 Codex app-server
+`npm run remote` 会同时启动 Codex app-server 和 bridge。首次运行会在
+`~/.codex-remote-pwa/config.json` 生成由 64 个十六进制字符组成的强随机 token 和默认端口 `8790`；以后会复用该配置，包括你手动修改并保存的有效端口。
+
+启动后，终端会打印本机、局域网和检测到的 Tailscale 候选链接，并为优先链接显示二维码。电脑浏览器可打开本机链接，手机可扫描二维码或打开它能访问的候选链接。按 `Ctrl+C` 会同时停止 app-server 和 bridge。
+
+链接中的 `token` 是访问凭证，应像密码一样妥善保管。不要把 bridge 端口直接暴露到公网。
+
+### 高级：手动启动
+
+需要自行控制进程或环境变量时，可以分别启动：
 
 ```bash
 codex app-server --listen ws://127.0.0.1:8766
 ```
 
-### 4. 启动 bridge
+另开一个终端：
 
 ```bash
 BRIDGE_TOKEN=change-me \
@@ -107,13 +110,13 @@ CODEX_APP_SERVER_URL=ws://127.0.0.1:8766 \
 npm run start --workspace @codex-remote/server
 ```
 
-如果不设置 `CODEX_APP_SERVER_URL`，bridge 会回退到 `codex exec --json`。
-
-### 5. 打开页面
+手动启动 bridge 的默认端口仍为 `8787`，页面地址是：
 
 ```text
 http://127.0.0.1:8787/?token=change-me
 ```
+
+如果不设置 `CODEX_APP_SERVER_URL`，bridge 会回退到 `codex exec --json`。
 
 ## 快速开始：Relay + Agent
 
@@ -166,34 +169,15 @@ http://127.0.0.1:8787/?relay=http://127.0.0.1:8788&pair=ABCD1234
 
 ## 外网访问建议
 
-优先推荐 Tailscale。它能避免把本机 8787 直接裸露到公网。
+优先推荐 Tailscale，避免把本机 bridge 端口直接裸露到公网。`npm run remote` 只会通过 `tailscale ip -4` 读取当前 Tailscale IPv4 地址并打印 `8790` 候选链接，不会安装或配置 Tailscale，也不会启用 Serve 或 Funnel。
 
-```bash
-brew install tailscale
-```
-
-启动 rootless userspace daemon：
-
-```bash
-/opt/homebrew/opt/tailscale/bin/tailscaled \
-  --tun=userspace-networking \
-  --socket=/tmp/tailscaled-codex.sock \
-  --state=$HOME/.local/share/tailscale/codex-remote.state
-```
-
-登录：
-
-```bash
-tailscale --socket=/tmp/tailscaled-codex.sock up --accept-routes=false --hostname=codex-remote-pwa --qr
-```
-
-发布 bridge：
-
-```bash
-tailscale --socket=/tmp/tailscaled-codex.sock serve --bg 8787
-```
+只有当电脑和手机已连接到允许互访的 Tailscale 网络时，手机才能打开终端打印的 Tailscale 链接。若没有检测到 Tailscale，启动器仍会打印本机和可用的局域网链接；网络接入、ACL 和防火墙需要单独配置。
 
 ## 配置
+
+### 启动器
+
+`npm run remote` 使用 `~/.codex-remote-pwa/config.json` 中持久化的 token 和端口，首次生成的默认端口为 `8790`。如需换端口，停止服务后修改该文件中的 `port`，再重新运行启动器。
 
 ### Bridge
 
@@ -265,12 +249,12 @@ npm run start --workspace @codex-remote/agent -- --relay http://127.0.0.1:8788 -
 - 手机端不要直接暴露本机文件系统能力。
 - Relay 不保存代码、不执行命令，只负责配对和转发。
 - Agent 跑在本机，真实权限等同于当前用户。
-- `BRIDGE_TOKEN` 和 pair code 都应视作临时访问凭证。
+- `BRIDGE_TOKEN`、包含 token 的访问链接和 pair code 都应视作访问凭证，不要公开分享。
 - 公网部署 relay 时应增加 HTTPS、限流、审计和更强的 session token。
 
 ## 后续计划
 
-- 在 UI 里生成 pair code 和二维码
+- 在 UI 里生成 Relay pair code 和配对二维码
 - 完成 app-server approve/reject 回写闭环
 - 增加 relay session token，替代长时间复用 pair code
 - 增加 Agent 断线重连和更清晰的连接诊断

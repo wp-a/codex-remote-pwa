@@ -32,6 +32,8 @@ export function timelineEventLabel(event: TimelineEvent): string {
     case "patch_summary":
     case "system":
       return "最后输出";
+    case "context_compaction":
+      return "上下文压缩";
     case "command":
       return "运行状态";
     case "user_message":
@@ -48,6 +50,8 @@ export function timelineEventText(event: TimelineEvent): string {
       return event.text;
     case "system":
       return systemEventText(event.text);
+    case "context_compaction":
+      return "前面的对话已被压缩成摘要，后续回复会基于压缩后的上下文继续。";
     case "command":
       return `${commandStatusLabel(event.status)}: ${event.cmd}`;
     case "approval_required":

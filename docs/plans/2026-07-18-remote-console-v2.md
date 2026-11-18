@@ -6,7 +6,7 @@
 
 **Architecture:** A root Node launcher owns durable local configuration, address discovery, child-process lifecycle, and terminal QR output. The existing bridge remains the authenticated API boundary and adds read-only access metadata plus internal-thread filtering. The React client adopts explicit Home, Chat, Session Picker, and Settings surfaces while preserving Direct and Relay transports.
 
-**Tech Stack:** Node.js ESM, TypeScript, React 19, Express 5, Vitest, Node test runner, Vite, lucide-react, qrcode-terminal
+**Tech Stack:** Node.js ESM, TypeScript, React 19, Express 5, Vitest, Node test runner, Vite, lucide-react, qrcode
 
 ---
 
@@ -60,7 +60,7 @@ export function buildAccessCandidates({ port, token, lanAddresses, tailscaleAddr
 export function choosePreferredAccessUrl(candidates) { /* tailscale > lan > local */ }
 ```
 
-Use `crypto.randomBytes(32).toString("hex")`, atomic temporary-file rename, and explicit `chmod(0o600)`.
+Use `crypto.randomBytes(32).toString("hex")`, exclusive atomic publication from a private temporary file, and explicit `chmod(0o600)`.
 
 **Step 4: Verify GREEN**
 
@@ -70,7 +70,7 @@ Expected: all config tests pass.
 
 **Step 5: Add dependencies**
 
-Add `qrcode-terminal` as a root dependency. Do not add a general launcher framework.
+Add `qrcode` as a root dependency. Do not add a general launcher framework.
 
 ### Task 2: One-Command Process Orchestration
 
@@ -86,7 +86,7 @@ Inject port probing, spawn, logging, signal registration, and exit handling. Cov
 
 - Missing `packages/server/dist/index.js` reports `npm run build` and exits 1.
 - Occupied configured port reports the port and exits before spawning.
-- Both children receive the resolved app-server URL, token, port, and serialized access candidates.
+- Both children receive the resolved app-server URL, token, and port; the bridge starts with an empty candidate set until verification completes.
 - SIGINT terminates both children once.
 - Required child failure terminates its sibling and returns non-zero.
 
@@ -144,7 +144,7 @@ Expected: FAIL because parsing and schema support do not exist.
 
 **Step 3: Implement and expose metadata**
 
-Parse `CODEX_REMOTE_ACCESS_CANDIDATES` once in `index.ts`, pass it into `createBridgeHttp`, and include it in authenticated `/api/health`. Never add an unauthenticated access endpoint.
+Parse `CODEX_REMOTE_ACCESS_CANDIDATES` in `index.ts` as the initial value and include the current value in authenticated `/api/health`. After readiness, the launcher verifies every candidate origin and publishes only the verified set through a Bearer-authenticated, loopback-only update endpoint. Never add an unauthenticated access endpoint.
 
 **Step 4: Write failing thread hygiene test**
 

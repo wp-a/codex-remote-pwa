@@ -16,12 +16,33 @@ type TimelineProps = {
 };
 
 function transcriptEvents(events: TimelineEvent[]): TimelineEvent[] {
-  return events.filter(
+  const visibleEvents = events.filter(
     (event) =>
-      ["user_message", "assistant_message", "patch_summary", "system"].includes(
+      (["user_message", "assistant_message", "patch_summary", "system"].includes(
         event.type,
-      ) && !isNoisySystemEvent(event, events),
+      ) ||
+        event.type === "context_compaction") &&
+      !isNoisySystemEvent(event, events) &&
+      !isTurnAbortedUserMessage(event),
   );
+
+  return visibleEvents.filter((event, index) => {
+    const previous = visibleEvents[index - 1];
+    return !(
+      event.type === "context_compaction" &&
+      previous?.type === "context_compaction" &&
+      previous.runId === event.runId
+    );
+  });
+}
+
+function isTurnAbortedUserMessage(event: TimelineEvent): boolean {
+  if (event.type !== "user_message") {
+    return false;
+  }
+
+  const text = event.text.trim();
+  return text.startsWith("<turn_aborted>") && text.endsWith("</turn_aborted>");
 }
 
 function latestActivityEvent(events: TimelineEvent[]): TimelineEvent | null {
@@ -160,16 +181,6 @@ export function Timeline({
 
   return (
     <>
-      {pendingApprovals.map((approval) => (
-        <ApprovalCard
-          approval={approval}
-          key={approval.id}
-          onApproveOnce={onApproveOnce}
-          onApproveTurn={onApproveTurn}
-          onReject={onReject}
-        />
-      ))}
-
       {transcript.length > 0 ? (
         <div className="timeline-thread">
           {transcript.map((event) => (
@@ -179,6 +190,8 @@ export function Timeline({
                   ? "is-user"
                   : event.type === "assistant_message"
                     ? "is-assistant"
+                    : event.type === "context_compaction"
+                      ? "is-compaction"
                     : "is-meta"
               }`}
               key={event.id}
@@ -194,7 +207,9 @@ export function Timeline({
                     ? "is-user"
                     : event.type === "assistant_message"
                       ? "is-assistant"
-                      : "is-meta"
+                      : event.type === "context_compaction"
+                        ? "is-compaction"
+                        : "is-meta"
                 }`}
               >
                 {event.type === "user_message" || event.type === "assistant_message" ? null : (
@@ -224,6 +239,16 @@ export function Timeline({
           <p>{timelineEventText(activityEvent)}</p>
         </article>
       ) : null}
+
+      {pendingApprovals.map((approval) => (
+        <ApprovalCard
+          approval={approval}
+          key={approval.id}
+          onApproveOnce={onApproveOnce}
+          onApproveTurn={onApproveTurn}
+          onReject={onReject}
+        />
+      ))}
     </>
   );
 }

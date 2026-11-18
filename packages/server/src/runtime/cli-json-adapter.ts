@@ -36,6 +36,16 @@ type CliJsonLine =
           };
     }
   | {
+      type: "item.completed";
+      item: {
+        id: string;
+        type: "context_compaction" | "contextCompaction" | "compaction";
+      };
+    }
+  | {
+      type: "thread.compacted";
+    }
+  | {
       type: "turn.completed";
       usage?: {
         input_tokens: number;
@@ -117,6 +127,18 @@ export class CliJsonAdapter implements RuntimeAdapter {
           return [{ type: "assistant_message", text: payload.item.text }];
         }
 
+        if (
+          payload.item.type === "context_compaction" ||
+          payload.item.type === "contextCompaction" ||
+          payload.item.type === "compaction"
+        ) {
+          return [{ type: "context_compaction" }];
+        }
+
+        if (payload.item.type !== "command_execution") {
+          return [];
+        }
+
         return [
           {
             type: "command",
@@ -130,6 +152,8 @@ export class CliJsonAdapter implements RuntimeAdapter {
       case "turn.completed":
         this.lastRuntimeErrorMessage = null;
         return [{ type: "turn_completed", usage: payload.usage }];
+      case "thread.compacted":
+        return [{ type: "context_compaction" }];
       case "turn.failed": {
         const message = payload.error?.message ?? "Codex turn failed.";
         if (message === this.lastRuntimeErrorMessage) {

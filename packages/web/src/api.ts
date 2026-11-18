@@ -13,6 +13,11 @@ export type BridgeHealth = {
   ok: boolean;
   runtimeMode: "app-server" | "cli" | "local-only";
   canSendMessages: boolean;
+  accessCandidates?: Array<{
+    kind: "local" | "lan" | "tailscale";
+    label: string;
+    url: string;
+  }>;
   transport?: "direct" | "relay";
   agent?: unknown;
 };

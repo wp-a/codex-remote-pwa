@@ -1,9 +1,23 @@
 {
-  "name": "Codex 手机控制台",
-  "short_name": "Codex 控制台",
+  "name": "Remote Workbench",
+  "short_name": "Workbench",
+  "description": "Private remote task workbench",
   "display": "standalone",
   "start_url": "/",
-  "background_color": "#f4efe7",
-  "theme_color": "#0d8b7d",
-  "icons": []
+  "background_color": "#f5f7fa",
+  "theme_color": "#fcfdff",
+  "icons": [
+    {
+      "src": "/icons/workbench-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/workbench-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

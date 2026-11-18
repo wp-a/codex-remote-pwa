@@ -6,6 +6,81 @@ import type { TimelineEvent } from "@codex-remote/shared";
 import { Timeline } from "./timeline.js";
 
 describe("Timeline markdown rendering", () => {
+  it("renders pending approvals after the latest transcript output", () => {
+    render(
+      <Timeline
+        approvals={[
+          {
+            id: "approval_pending",
+            sessionId: "session_1",
+            runId: "run_1",
+            scope: "network",
+            reason: "Needs network access",
+            status: "pending",
+            createdAt: "2026-04-18T10:00:02.000Z",
+          },
+        ]}
+        events={[
+          {
+            id: "event_assistant_latest",
+            sessionId: "session_1",
+            runId: "run_1",
+            type: "assistant_message",
+            text: "Latest answer before approval",
+            ts: "2026-04-18T10:00:01.000Z",
+          },
+        ]}
+        onApproveOnce={vi.fn()}
+        onApproveTurn={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    );
+
+    const transcript = screen
+      .getByText("Latest answer before approval")
+      .closest(".timeline-message");
+    const approval = screen.getByText("Needs network access").closest(".approval-card");
+    expect(transcript).not.toBeNull();
+    expect(approval).not.toBeNull();
+    expect(
+      transcript!.compareDocumentPosition(approval!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("collapses consecutive compaction notifications from the same run", () => {
+    const events: TimelineEvent[] = [
+      {
+        id: "event_compaction_item",
+        sessionId: "session_1",
+        runId: "run_1",
+        type: "context_compaction",
+        ts: "2026-04-18T10:00:01.000Z",
+      },
+      {
+        id: "event_compaction_thread",
+        sessionId: "session_1",
+        runId: "run_1",
+        type: "context_compaction",
+        ts: "2026-04-18T10:00:01.100Z",
+      },
+    ];
+
+    render(
+      <Timeline
+        approvals={[]}
+        events={events}
+        onApproveOnce={vi.fn()}
+        onApproveTurn={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("上下文压缩")).toHaveLength(1);
+    expect(
+      screen.getAllByText("前面的对话已被压缩成摘要，后续回复会基于压缩后的上下文继续。"),
+    ).toHaveLength(1);
+  });
+
   it("renders assistant markdown as formatted content while keeping user markdown literal", async () => {
     const events: TimelineEvent[] = [
       {
@@ -128,6 +203,55 @@ describe("Timeline markdown rendering", () => {
     expect(screen.getByText("OK")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("challenge-platform");
     expect(document.body).not.toHaveTextContent("</html>");
+  });
+
+  it("hides only user messages made entirely from a turn-aborted envelope", () => {
+    const events: TimelineEvent[] = [
+      {
+        id: "event_aborted_envelope",
+        sessionId: "session_1",
+        runId: "run_1",
+        type: "user_message",
+        text: "  <turn_aborted>\nThe user intentionally interrupted the previous turn.\n</turn_aborted>  ",
+        ts: "2026-07-18T10:00:00.000Z",
+      },
+      {
+        id: "event_aborted_with_prefix",
+        sessionId: "session_1",
+        runId: "run_2",
+        type: "user_message",
+        text: "请解释 <turn_aborted>protocol</turn_aborted>",
+        ts: "2026-07-18T10:00:01.000Z",
+      },
+      {
+        id: "event_aborted_with_followup",
+        sessionId: "session_1",
+        runId: "run_3",
+        type: "user_message",
+        text: "<turn_aborted>protocol</turn_aborted>\n继续执行",
+        ts: "2026-07-18T10:00:02.000Z",
+      },
+    ];
+
+    render(
+      <Timeline
+        approvals={[]}
+        events={events}
+        onApproveOnce={vi.fn()}
+        onApproveTurn={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    );
+
+    expect(document.body).not.toHaveTextContent(
+      "The user intentionally interrupted the previous turn.",
+    );
+    expect(
+      screen.getByText("请解释 <turn_aborted>protocol</turn_aborted>"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("<turn_aborted>protocol</turn_aborted> 继续执行"),
+    ).toBeInTheDocument();
   });
 
   it("hides stale generic process exits after a later successful reply", async () => {

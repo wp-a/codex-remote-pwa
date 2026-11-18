@@ -1,6 +1,7 @@
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
+import { parseAccessCandidates } from "./access-info.js";
 import { SqliteStore } from "./db.js";
 import { EventBus } from "./event-bus.js";
 import { createBridgeHttp } from "./http.js";
@@ -9,6 +10,7 @@ import { AppServerRuntime } from "./runtime/app-server-runtime.js";
 import { CliJsonAdapter } from "./runtime/cli-json-adapter.js";
 import { CodexRuntime } from "./runtime/codex-runtime.js";
 import { SessionService } from "./session-service.js";
+import { listenForBridge } from "./server-listen.js";
 
 const port = Number(process.env.PORT ?? "8787");
 const authToken = process.env.BRIDGE_TOKEN ?? "change-me";
@@ -16,6 +18,9 @@ const dbPath = process.env.DB_PATH ?? "./codex-remote.db";
 const defaultStaticDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 const staticDir = process.env.WEB_DIST_DIR ?? defaultStaticDir;
 const localOnly = process.env.CODEX_REMOTE_LOCAL_ONLY === "1";
+const accessCandidates = parseAccessCandidates(
+  process.env.CODEX_REMOTE_ACCESS_CANDIDATES,
+);
 const runtimeMode: "app-server" | "cli" | "local-only" = localOnly
   ? "local-only"
   : process.env.CODEX_APP_SERVER_URL
@@ -33,6 +38,7 @@ const runtime = localOnly
 const codexSessions = new LocalCodexSessions(process.env.CODEX_STATE_DB_PATH);
 
 const bridge = createBridgeHttp({
+  accessCandidates,
   authToken,
   codexSessions,
   eventBus,
@@ -45,6 +51,4 @@ const bridge = createBridgeHttp({
 const server = http.createServer(bridge.app);
 bridge.attachWebSocket(server);
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`codex-remote server listening on http://0.0.0.0:${port}`);
-});
+listenForBridge(server, { port });

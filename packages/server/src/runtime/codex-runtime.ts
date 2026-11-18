@@ -13,6 +13,7 @@ export type RuntimeSignal =
     }
   | { type: "assistant_message"; text: string }
   | { type: "system_message"; text: string }
+  | { type: "context_compaction" }
   | {
       type: "approval_request";
       requestId: string;

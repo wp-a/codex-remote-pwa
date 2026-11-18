@@ -1,4 +1,5 @@
 import type { FormEvent } from "react";
+import { Send } from "lucide-react";
 
 type ComposerProps = {
   disabled?: boolean;
@@ -28,11 +29,8 @@ export function Composer({
             value={message}
           />
         </label>
-        <button aria-label="发送" disabled={disabled} type="submit">
-          <span aria-hidden="true" className="composer__send-icon">
-            ↑
-          </span>
-          <span className="sr-only">发送</span>
+        <button aria-label="发送" disabled={disabled} title="发送" type="submit">
+          <Send aria-hidden="true" className="composer__send-icon" size={18} />
         </button>
       </div>
       <p className={`composer__hint${disabled ? " is-disabled" : ""}`}>

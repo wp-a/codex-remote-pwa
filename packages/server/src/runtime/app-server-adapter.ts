@@ -42,10 +42,19 @@ type AgentMessageItem = {
   text: string;
 };
 
+type ContextCompactionItem = {
+  type: "contextCompaction";
+  id: string;
+};
+
 type ItemNotification = {
   threadId?: string;
   turnId?: string;
-  item?: CommandExecutionItem | AgentMessageItem | { type: string; id: string };
+  item?:
+    | CommandExecutionItem
+    | AgentMessageItem
+    | ContextCompactionItem
+    | { type: string; id: string };
 };
 
 type TurnCompletedNotification = {
@@ -137,6 +146,12 @@ function isAgentMessageItem(
   item: ItemNotification["item"] | undefined,
 ): item is AgentMessageItem {
   return item?.type === "agentMessage";
+}
+
+function isContextCompactionItem(
+  item: ItemNotification["item"] | undefined,
+): item is ContextCompactionItem {
+  return item?.type === "contextCompaction";
 }
 
 export class AppServerAdapter implements RuntimeAdapter {
@@ -280,6 +295,10 @@ export class AppServerAdapter implements RuntimeAdapter {
         return item.text ? [{ type: "assistant_message", text: item.text }] : [];
       }
 
+      if (isContextCompactionItem(item)) {
+        return [{ type: "context_compaction" }];
+      }
+
       if (isCommandExecutionItem(item)) {
         return [
           {
@@ -292,6 +311,10 @@ export class AppServerAdapter implements RuntimeAdapter {
           },
         ];
       }
+    }
+
+    if (notification.method === "thread/compacted") {
+      return [{ type: "context_compaction" }];
     }
 
     return [];

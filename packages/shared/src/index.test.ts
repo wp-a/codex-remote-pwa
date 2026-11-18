@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accessCandidateSchema,
   approvalRequestSchema,
   remoteEventSchema,
   remoteMessageSchema,
@@ -12,6 +13,35 @@ import {
 } from "./index.js";
 
 describe("shared schemas", () => {
+  it("parses reachable HTTP access candidates", () => {
+    expect(
+      accessCandidateSchema.parse({
+        kind: "tailscale",
+        label: "Tailscale",
+        url: "https://mac.example.ts.net/?token=secret",
+      }),
+    ).toEqual({
+      kind: "tailscale",
+      label: "Tailscale",
+      url: "https://mac.example.ts.net/?token=secret",
+    });
+
+    expect(() =>
+      accessCandidateSchema.parse({
+        kind: "lan",
+        label: "LAN",
+        url: "ftp://192.168.1.2/",
+      }),
+    ).toThrow();
+    expect(
+      accessCandidateSchema.safeParse({
+        kind: "lan",
+        label: "LAN",
+        url: "not-a-url",
+      }).success,
+    ).toBe(false);
+  });
+
   it("parses the core session snapshot shape", () => {
     const session = sessionSchema.parse({
       id: "session_1",

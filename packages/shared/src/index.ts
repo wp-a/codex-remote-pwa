@@ -1,4 +1,5 @@
 export {
+  accessCandidateSchema,
   codexSessionSummarySchema,
   approvalRequestSchema,
   approvalStatusSchema,
@@ -19,6 +20,8 @@ export {
   timelineEventSchema,
 } from "./schema.js";
 
+export type AccessCandidate =
+  typeof import("./schema.js").accessCandidateSchema._output;
 export type CodexSessionSummary =
   typeof import("./schema.js").codexSessionSummarySchema._output;
 export type ApprovalRequest = typeof import("./schema.js").approvalRequestSchema._output;

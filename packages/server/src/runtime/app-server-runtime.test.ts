@@ -200,6 +200,21 @@ describe("AppServerRuntime", () => {
             }),
           );
           socket.send(
+            rpcNotification("item/completed", {
+              threadId: "thread_1",
+              turnId: "turn_1",
+              item: {
+                type: "contextCompaction",
+                id: "item_compaction_1",
+              },
+            }),
+          );
+          socket.send(
+            rpcNotification("thread/compacted", {
+              threadId: "thread_1",
+            }),
+          );
+          socket.send(
             rpcNotification("turn/completed", {
               threadId: "thread_1",
               turn: turnPayload("turn_1", "completed"),
@@ -275,6 +290,8 @@ describe("AppServerRuntime", () => {
         exitCode: 0,
       },
       { type: "assistant_message", text: "READY" },
+      { type: "context_compaction" },
+      { type: "context_compaction" },
       { type: "turn_completed" },
     ]);
     expect(exitCode).toBe(0);
